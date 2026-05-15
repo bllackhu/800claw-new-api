@@ -77,9 +77,17 @@ func Client(ctx context.Context) (*core.Client, *Config, error) {
 		clientErr = errors.New("wechat pay is not configured")
 		return nil, nil, clientErr
 	}
-	c, err := core.NewClient(ctx, option.WithWechatPayAutoAuthCipher(
-		cfg.MchID, cfg.MchCertificateSerialNumber, cfg.PrivateKey, cfg.MchAPIv3Key,
-	))
+	var c *core.Client
+	if cfg.UseWechatPayPublicKeyMode() {
+		c, err = core.NewClient(ctx, option.WithWechatPayPublicKeyAuthCipher(
+			cfg.MchID, cfg.MchCertificateSerialNumber, cfg.PrivateKey,
+			cfg.WechatpayPublicKeyID, cfg.WechatpayPublicKey,
+		))
+	} else {
+		c, err = core.NewClient(ctx, option.WithWechatPayAutoAuthCipher(
+			cfg.MchID, cfg.MchCertificateSerialNumber, cfg.PrivateKey, cfg.MchAPIv3Key,
+		))
+	}
 	if err != nil {
 		clientErr = err
 		return nil, nil, err
@@ -125,10 +133,17 @@ func NativePrepay(ctx context.Context, cfg *Config, client *core.Client, notifyU
 }
 
 // ParsePaymentNotify verifies and decrypts a payment notification into payments.Transaction.
-// Call Client() once before handling notifies so the platform certificate downloader is registered.
+// Legacy (platform certificate) mode: call Client() once before notifies so the certificate downloader is registered.
+// 微信支付公钥 mode: verifies with WECHATPAY_PUBLIC_KEY only (see Config.UseWechatPayPublicKeyMode).
 func ParsePaymentNotify(ctx context.Context, cfg *Config, r *http.Request) (*notify.Request, *payments.Transaction, error) {
-	certVisitor := downloader.MgrInstance().GetCertificateVisitor(cfg.MchID)
-	handler := notify.NewNotifyHandler(cfg.MchAPIv3Key, verifiers.NewSHA256WithRSAVerifier(certVisitor))
+	var handler *notify.Handler
+	if cfg != nil && cfg.UseWechatPayPublicKeyMode() {
+		handler = notify.NewNotifyHandler(cfg.MchAPIv3Key,
+			verifiers.NewSHA256WithRSAPubkeyVerifier(cfg.WechatpayPublicKeyID, *cfg.WechatpayPublicKey))
+	} else {
+		certVisitor := downloader.MgrInstance().GetCertificateVisitor(cfg.MchID)
+		handler = notify.NewNotifyHandler(cfg.MchAPIv3Key, verifiers.NewSHA256WithRSAVerifier(certVisitor))
+	}
 	tx := new(payments.Transaction)
 	nreq, err := handler.ParseNotifyRequest(ctx, r, tx)
 	if err != nil {

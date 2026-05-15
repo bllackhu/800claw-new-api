@@ -17,6 +17,6 @@ Native WeChat Pay uses **`github.com/wechatpay-apiv3/wechatpay-go`** (pinned in 
 ## Native WeChat Pay v3 — token pool subscription
 
 - **Example bare-metal layout / `.env` template:** [`scripts/deploy/01-setup-server.sh`](../scripts/deploy/01-setup-server.sh) (includes `WECHATPAY_*` and pool flags); binary install: [`scripts/deploy/02-deploy-binary.sh`](../scripts/deploy/02-deploy-binary.sh).
-- **Separate rail:** WeChat Pay API v3 via `wechatpay-go`; merchant credentials from env (see `service/wechatpay` package).
+- **Separate rail:** WeChat Pay API v3 via `wechatpay-go` (≥ v0.2.20 for public-key mode); merchant credentials from env (see `service/wechatpay` package). Optional **`WECHATPAY_PUBLIC_KEY_ID`** + **`WECHATPAY_PUBLIC_KEY_PATH`** enable [微信支付公钥](https://pay.weixin.qq.com/doc/v3/merchant/4012154180) instead of auto-downloaded platform certificates (avoids `平台证书已过期` class errors on API init when switching).
 - **Order:** `token_pool_subscription_orders`; fulfillment updates **`token_pool_subscriptions`** for `(token_id, pool_id)` access windows.
-- **Notify:** `POST /api/payment/wechat/notify` — SDK `notify.Handler` verify + decrypt; idempotent completion (reuse `LockOrder` pattern from top-up).
+- **Notify:** `POST /api/payment/wechat/notify` — SDK `notify.Handler` verify + decrypt; idempotent completion (reuse `LockOrder` pattern from top-up). In public-key mode, verification uses the configured **微信支付公钥** only (WeChat’s 7-day callback gray period may still send some platform-cert-signed notifies until migration completes; see WeChat doc §4.4).

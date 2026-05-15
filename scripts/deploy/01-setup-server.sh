@@ -62,6 +62,11 @@ WECHATPAY_MCH_PRIVATE_KEY_PATH=${BASE}/secrets/apiclient_key.pem
 # Alternative if you cannot use a file (less ideal):
 # WECHATPAY_MCH_PRIVATE_KEY='-----BEGIN PRIVATE KEY-----...'
 
+# --- 微信支付公钥 (recommended; avoids platform certificate download / 4012154180) ---
+# Download pub_key.pem + 公钥ID from 商户平台 → 账户中心 → API安全 → 微信支付公钥
+# WECHATPAY_PUBLIC_KEY_ID=PUB_KEY_ID_xxxxxxxx
+# WECHATPAY_PUBLIC_KEY_PATH=${BASE}/secrets/wechatpay_pub_key.pem
+
 EOF
   chown root:root "${ENV_FILE}"
   chmod 0600 "${ENV_FILE}"

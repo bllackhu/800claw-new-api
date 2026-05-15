@@ -100,6 +100,13 @@ func RequestTokenPoolSubscriptionWechatCheckout(c *gin.Context) {
 	ctx := c.Request.Context()
 	client, cfg, err := wechatpay.Client(ctx)
 	if err != nil || client == nil || cfg == nil {
+		// Client() fails both when env is incomplete and when core.NewClient fails (e.g. outbound TLS
+		// to WeChat, bad key material). Log the real error — the API message stays generic.
+		if err != nil {
+			logger.LogError(c, "wechatpay client init: "+err.Error())
+		} else {
+			logger.LogError(c, "wechatpay client init: nil client or config (unexpected)")
+		}
 		common.ApiErrorMsg(c, "wechat pay is not configured on this server")
 		return
 	}
@@ -153,7 +160,11 @@ func WeChatPayPoolSubscriptionNotify(c *gin.Context) {
 	ctx := context.Background()
 	_, cfg, err := wechatpay.Client(ctx)
 	if err != nil || cfg == nil {
-		logger.LogError(c, "wechat pay notify: client not available: "+fmt.Sprint(err))
+		if err != nil {
+			logger.LogError(c, "wechat pay notify: client not available: "+err.Error())
+		} else {
+			logger.LogError(c, "wechat pay notify: client not available: nil config")
+		}
 		c.JSON(http.StatusServiceUnavailable, gin.H{"code": "FAIL", "message": "not configured"})
 		return
 	}
