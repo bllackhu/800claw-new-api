@@ -132,6 +132,22 @@ func NativePrepay(ctx context.Context, cfg *Config, client *core.Client, notifyU
 	return *resp.CodeUrl, nil
 }
 
+// QueryTransactionByOutTradeNo loads order state from WeChat by merchant out_trade_no.
+func QueryTransactionByOutTradeNo(ctx context.Context, cfg *Config, client *core.Client, outTradeNo string) (*payments.Transaction, error) {
+	if outTradeNo == "" {
+		return nil, errors.New("empty out_trade_no")
+	}
+	if cfg == nil || client == nil {
+		return nil, errors.New("wechat pay client not configured")
+	}
+	svc := native.NativeApiService{Client: client}
+	resp, _, err := svc.QueryOrderByOutTradeNo(ctx, native.QueryOrderByOutTradeNoRequest{
+		OutTradeNo: core.String(outTradeNo),
+		Mchid:      core.String(cfg.MchID),
+	})
+	return resp, err
+}
+
 // ParsePaymentNotify verifies and decrypts a payment notification into payments.Transaction.
 // Legacy (platform certificate) mode: call Client() once before notifies so the certificate downloader is registered.
 // 微信支付公钥 mode: verifies with WECHATPAY_PUBLIC_KEY only (see Config.UseWechatPayPublicKeyMode).

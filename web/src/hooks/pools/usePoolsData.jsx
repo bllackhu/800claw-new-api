@@ -27,6 +27,27 @@ const PAGE_SIZE = 20;
 const getErrorMessage = (error, fallback) =>
   error?.response?.data?.message || error?.message || fallback;
 
+/** Keep raw string while typing; parse only when saving (see PoolFormSideSheet). */
+const formatMonthlyPriceCnyInput = (value) => {
+  if (value === null || value === undefined || value === '') {
+    return '0';
+  }
+  return String(value);
+};
+
+const parseMonthlyPriceCny = (form) => {
+  const raw =
+    form.monthly_price_cny_input !== undefined &&
+    form.monthly_price_cny_input !== null
+      ? String(form.monthly_price_cny_input).trim()
+      : String(form.monthly_price_cny ?? '').trim();
+  if (raw === '') {
+    return 0;
+  }
+  const n = Number.parseFloat(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+};
+
 const boolTag = (value) =>
   value ? <Tag color='green'>Enabled</Tag> : <Tag color='orange'>Disabled</Tag>;
 
@@ -45,6 +66,7 @@ export const usePoolsData = () => {
     description: '',
     status: 1,
     monthly_price_cny: 0,
+    monthly_price_cny_input: '0',
     billing_currency: 'CNY',
     billing_period_seconds: 30 * 24 * 3600,
   });
@@ -292,6 +314,7 @@ export const usePoolsData = () => {
       description: '',
       status: 1,
       monthly_price_cny: 0,
+      monthly_price_cny_input: '0',
       billing_currency: 'CNY',
       billing_period_seconds: 30 * 24 * 3600,
     });
@@ -334,6 +357,7 @@ export const usePoolsData = () => {
       description: record.description || '',
       status: Number(record.status) || 1,
       monthly_price_cny: Number(record.monthly_price_cny) || 0,
+      monthly_price_cny_input: formatMonthlyPriceCnyInput(record.monthly_price_cny),
       billing_currency: record.billing_currency || 'CNY',
       billing_period_seconds:
         Number(record.billing_period_seconds) || 30 * 24 * 3600,
@@ -432,7 +456,7 @@ export const usePoolsData = () => {
     const payload = {
       ...poolForm,
       status: Number(poolForm.status) || 1,
-      monthly_price_cny: Number(poolForm.monthly_price_cny) || 0,
+      monthly_price_cny: parseMonthlyPriceCny(poolForm),
       billing_currency: poolForm.billing_currency || 'CNY',
       billing_period_seconds:
         Number(poolForm.billing_period_seconds) || 30 * 24 * 3600,

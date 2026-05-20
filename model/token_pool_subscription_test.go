@@ -38,4 +38,9 @@ func TestCompleteTokenPoolSubscriptionFromNotify_Idempotent(t *testing.T) {
 	ok, err := TokenHasActivePoolSubscription(1, 10)
 	require.NoError(t, err)
 	require.True(t, ok)
+
+	sub, err := GetTokenPoolSubscription(1, 10)
+	require.NoError(t, err)
+	require.NotNil(t, sub)
+	require.Greater(t, sub.PeriodEnd, now)
 }

@@ -74,17 +74,32 @@ const PoolFormSideSheet = ({
           <Select.Option value='2'>Disabled</Select.Option>
         </Select>
         <Input
-          placeholder='monthly_price_cny (0 = no paid pool gate)'
-          value={String(formData.monthly_price_cny ?? 0)}
+          placeholder='monthly_price_cny (0 = no paid pool gate, decimals OK e.g. 1.50)'
+          value={formData.monthly_price_cny_input ?? '0'}
           onChange={(value) =>
+            setFormData((prev) => ({
+              ...prev,
+              monthly_price_cny_input: value,
+            }))
+          }
+          onBlur={() =>
             setFormData((prev) => {
-              if (value === '') {
-                return { ...prev, monthly_price_cny: 0 };
+              const raw = String(prev.monthly_price_cny_input ?? '').trim();
+              if (raw === '') {
+                return {
+                  ...prev,
+                  monthly_price_cny: 0,
+                  monthly_price_cny_input: '0',
+                };
               }
-              const n = Number.parseFloat(value);
+              const n = Number.parseFloat(raw);
+              if (!Number.isFinite(n) || n < 0) {
+                return prev;
+              }
               return {
                 ...prev,
-                monthly_price_cny: Number.isFinite(n) ? n : prev.monthly_price_cny,
+                monthly_price_cny: n,
+                monthly_price_cny_input: raw,
               };
             })
           }

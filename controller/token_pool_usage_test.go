@@ -295,5 +295,115 @@ func countPtr(v int64) *int64 {
 
 func migratePoolTablesForTokenUsageTests(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	require.NoError(t, db.AutoMigrate(&model.Pool{}, &model.PoolBinding{}))
+	require.NoError(t, db.AutoMigrate(
+		&model.Pool{},
+		&model.PoolBinding{},
+		&model.TokenPoolSubscription{},
+		&model.TokenPoolSubscriptionOrder{},
+	))
+}
+
+func TestGetTokenPoolUsageSelf_EmptyTokenNameFallback(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	migratePoolTablesForTokenUsageTests(t, db)
+	token := seedToken(t, db, 92, "", "unnamed-token-key-1234")
+	pool := &model.Pool{Name: "", Description: "desc", Status: model.PoolStatusEnabled, MonthlyPriceCny: 25}
+	require.NoError(t, db.Create(pool).Error)
+	require.NoError(t, db.Create(&model.PoolBinding{
+		BindingType:  model.PoolBindingTypeToken,
+		BindingValue: strconv.Itoa(token.Id),
+		PoolId:       pool.Id,
+		Enabled:      true,
+	}).Error)
+
+	originalBuilder := buildTokenPoolUsageItemFunc
+	t.Cleanup(func() {
+		buildTokenPoolUsageItemFunc = originalBuilder
+	})
+	buildTokenPoolUsageItemFunc = func(token *model.Token, windows []string, windowSeconds map[string]int) (*TokenPoolUsageItem, error) {
+		return &TokenPoolUsageItem{
+			TokenId:    token.Id,
+			TokenName:  token.Name,
+			PoolId:     pool.Id,
+			DataSource: tokenPoolUsageDataSource,
+			Usage:      map[string]*TokenPoolUsageWindow{},
+		}, nil
+	}
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/usage/token/pool", nil)
+	ctx.Set("token_id", token.Id)
+	ctx.Set("id", token.UserId)
+
+	GetTokenPoolUsageSelf(ctx)
+
+	var response tokenAPIResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	require.True(t, response.Success)
+
+	var payload struct {
+		TokenDisplayName  string                         `json:"token_display_name"`
+		ResolvedPoolName  string                         `json:"resolved_pool_name"`
+		Item              TokenPoolUsageItem             `json:"item"`
+		ResolvedPool      TokenPoolResolvedPoolSummary   `json:"resolved_pool"`
+		PoolSubscription  TokenPoolSubscriptionInfo      `json:"pool_subscription"`
+	}
+	require.NoError(t, common.Unmarshal(response.Data, &payload))
+	require.Equal(t, tokenDisplayNameFallback, payload.TokenDisplayName)
+	require.Equal(t, poolDisplayNameFallback, payload.ResolvedPoolName)
+	require.Equal(t, tokenDisplayNameFallback, payload.Item.TokenName)
+	require.Equal(t, poolDisplayNameFallback, payload.ResolvedPool.Name)
+	require.Equal(t, "desc", payload.ResolvedPool.Description)
+	require.True(t, payload.PoolSubscription.CheckoutAvailable)
+	require.EqualValues(t, 25, payload.PoolSubscription.MonthlyPriceCny)
+	require.False(t, payload.PoolSubscription.Active)
+}
+
+func TestGetTokenPoolUsageSelf_ActiveSubscription(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	migratePoolTablesForTokenUsageTests(t, db)
+	token := seedToken(t, db, 93, "sub-tok", "sub-token-key-abcdef")
+	pool := &model.Pool{Name: "Pro pool", Status: model.PoolStatusEnabled, MonthlyPriceCny: 40}
+	require.NoError(t, db.Create(pool).Error)
+	require.NoError(t, db.Create(&model.PoolBinding{
+		BindingType:  model.PoolBindingTypeToken,
+		BindingValue: strconv.Itoa(token.Id),
+		PoolId:       pool.Id,
+		Enabled:      true,
+	}).Error)
+	now := common.GetTimestamp()
+	require.NoError(t, db.Create(&model.TokenPoolSubscription{
+		TokenId:     token.Id,
+		PoolId:      pool.Id,
+		PeriodStart: now - 3600,
+		PeriodEnd:   now + 7*24*3600,
+	}).Error)
+
+	originalBuilder := buildTokenPoolUsageItemFunc
+	t.Cleanup(func() {
+		buildTokenPoolUsageItemFunc = originalBuilder
+	})
+	buildTokenPoolUsageItemFunc = func(token *model.Token, windows []string, windowSeconds map[string]int) (*TokenPoolUsageItem, error) {
+		return &TokenPoolUsageItem{TokenId: token.Id, DataSource: tokenPoolUsageDataSource, Usage: map[string]*TokenPoolUsageWindow{}}, nil
+	}
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/usage/token/pool", nil)
+	ctx.Set("token_id", token.Id)
+	ctx.Set("id", token.UserId)
+
+	GetTokenPoolUsageSelf(ctx)
+
+	var response tokenAPIResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	require.True(t, response.Success)
+
+	var payload struct {
+		PoolSubscription TokenPoolSubscriptionInfo `json:"pool_subscription"`
+	}
+	require.NoError(t, common.Unmarshal(response.Data, &payload))
+	require.True(t, payload.PoolSubscription.Active)
+	require.Greater(t, payload.PoolSubscription.PeriodEnd, now)
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -14,6 +15,11 @@ import (
 )
 
 const tokenPoolUsageDataSource = "rolling_redis"
+
+const (
+	tokenDisplayNameFallback = "API token"
+	poolDisplayNameFallback  = "Pool"
+)
 
 const (
 	tokenPoolUsageReasonNoResolvedPool     = "no_resolved_pool"
@@ -74,6 +80,109 @@ type TokenPoolLLMTokenUsage struct {
 	DataSource string                              `json:"data_source"`
 	ByWindow   map[string]*TokenPoolLLMTokenWindow `json:"by_window"`
 	Lifetime   TokenPoolLLMTokenLifetime           `json:"lifetime"`
+}
+
+// TokenPoolSubscriptionInfo is subscription and billing metadata for mobile/display clients.
+type TokenPoolSubscriptionInfo struct {
+	Active                  bool    `json:"active"`
+	PeriodStart             int64   `json:"period_start"`
+	PeriodEnd               int64   `json:"period_end"`
+	MonthlyPriceCny         float64 `json:"monthly_price_cny"`
+	BillingCurrency         string  `json:"billing_currency"`
+	BillingPeriodSeconds    int64   `json:"billing_period_seconds"`
+	CheckoutAvailable       bool    `json:"checkout_available"`
+	RequirePoolSubscription bool    `json:"require_pool_subscription"`
+}
+
+// TokenPoolResolvedPoolSummary is display-oriented pool metadata (no id required for UI labels).
+type TokenPoolResolvedPoolSummary struct {
+	Name            string  `json:"name"`
+	Description     string  `json:"description"`
+	MonthlyPriceCny float64 `json:"monthly_price_cny"`
+}
+
+func tokenDisplayName(token *model.Token) string {
+	if token == nil {
+		return tokenDisplayNameFallback
+	}
+	if name := strings.TrimSpace(token.Name); name != "" {
+		return name
+	}
+	return tokenDisplayNameFallback
+}
+
+func poolDisplayName(pool *model.Pool) string {
+	if pool == nil {
+		return poolDisplayNameFallback
+	}
+	if name := strings.TrimSpace(pool.Name); name != "" {
+		return name
+	}
+	return poolDisplayNameFallback
+}
+
+func applyTokenPoolUsageDisplayNames(item *TokenPoolUsageItem, token *model.Token, pool *model.Pool) string {
+	displayToken := tokenDisplayName(token)
+	if item != nil {
+		item.TokenName = displayToken
+		if pool != nil && pool.Id > 0 {
+			displayPool := poolDisplayName(pool)
+			item.PoolName = displayPool
+		}
+	}
+	return displayToken
+}
+
+func buildTokenPoolSubscriptionInfo(token *model.Token, pool *model.Pool) (*TokenPoolSubscriptionInfo, error) {
+	if pool == nil || pool.Id <= 0 {
+		return nil, nil
+	}
+	period := pool.BillingPeriodSeconds
+	if period <= 0 {
+		period = 30 * 24 * 3600
+	}
+	cur := pool.BillingCurrency
+	if cur == "" {
+		cur = "CNY"
+	}
+	info := &TokenPoolSubscriptionInfo{
+		MonthlyPriceCny:         pool.MonthlyPriceCny,
+		BillingCurrency:         cur,
+		BillingPeriodSeconds:    period,
+		CheckoutAvailable:       model.PoolRequiresPaidSubscription(pool),
+		RequirePoolSubscription: false,
+	}
+	if token != nil {
+		info.RequirePoolSubscription = token.RequirePoolSubscription
+	}
+	if token == nil || token.Id <= 0 {
+		return info, nil
+	}
+	now := common.GetTimestamp()
+	sub, err := model.GetTokenPoolSubscription(token.Id, pool.Id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return info, nil
+		}
+		return nil, err
+	}
+	info.PeriodStart = sub.PeriodStart
+	info.PeriodEnd = sub.PeriodEnd
+	if sub.PeriodEnd >= now {
+		info.Active = true
+	}
+	return info, nil
+}
+
+func buildTokenPoolResolvedPoolSummary(pool *model.Pool) *TokenPoolResolvedPoolSummary {
+	if pool == nil || pool.Id <= 0 {
+		return nil
+	}
+	return &TokenPoolResolvedPoolSummary{
+		Name:            poolDisplayName(pool),
+		Description:     strings.TrimSpace(pool.Description),
+		MonthlyPriceCny: pool.MonthlyPriceCny,
+	}
 }
 
 func buildTokenPoolLLMTokenUsage(token *model.Token, windows []string, windowSeconds map[string]int) (*TokenPoolLLMTokenUsage, error) {
@@ -375,15 +484,27 @@ func GetTokenPoolUsageSelf(c *gin.Context) {
 		common.ApiError(c, resErr)
 		return
 	}
+	displayTokenName := applyTokenPoolUsageDisplayNames(item, token, resolved)
 	payload := gin.H{
-		"item":            item,
-		"windows":         windows,
-		"data_source":     tokenPoolUsageDataSource,
-		"llm_token_usage": llmUsage,
+		"item":                item,
+		"windows":             windows,
+		"data_source":         tokenPoolUsageDataSource,
+		"llm_token_usage":     llmUsage,
+		"token_display_name":  displayTokenName,
 	}
 	if resolved != nil && resolved.Id > 0 {
+		displayPoolName := poolDisplayName(resolved)
 		payload["resolved_pool_id"] = resolved.Id
-		payload["resolved_pool_name"] = resolved.Name
+		payload["resolved_pool_name"] = displayPoolName
+		payload["resolved_pool"] = buildTokenPoolResolvedPoolSummary(resolved)
+		subInfo, subErr := buildTokenPoolSubscriptionInfo(token, resolved)
+		if subErr != nil {
+			common.ApiError(c, subErr)
+			return
+		}
+		if subInfo != nil {
+			payload["pool_subscription"] = subInfo
+		}
 	}
 
 	common.ApiSuccess(c, payload)

@@ -19,6 +19,7 @@ type TokenPoolSubscriptionOrder struct {
 	Currency             string  `json:"currency" gorm:"type:varchar(8);default:'CNY'"`
 	BillingPeriodSeconds int64   `json:"billing_period_seconds" gorm:"bigint"`
 	TradeNo              string  `json:"trade_no" gorm:"type:varchar(64);uniqueIndex"`
+	CodeUrl              string  `json:"-" gorm:"type:text"`
 	WechatTransactionId  string  `json:"wechat_transaction_id" gorm:"type:varchar(64);default:''"`
 	Status               string  `json:"status" gorm:"type:varchar(32);index"`
 	RawNotify            string  `json:"raw_notify" gorm:"type:text"`
@@ -67,6 +68,51 @@ func GetTokenPoolSubscriptionOrderByTradeNo(tradeNo string) (*TokenPoolSubscript
 	return &o, nil
 }
 
+// TokenPoolSubscriptionPendingReuseSeconds is how long a pending checkout QR may be reused.
+const TokenPoolSubscriptionPendingReuseSeconds int64 = 2 * 3600
+
+func GetLatestPendingTokenPoolSubscriptionOrder(tokenId, poolId int) (*TokenPoolSubscriptionOrder, error) {
+	if tokenId <= 0 || poolId <= 0 {
+		return nil, errors.New("invalid token_id or pool_id")
+	}
+	var o TokenPoolSubscriptionOrder
+	err := DB.Where("token_id = ? AND pool_id = ? AND status = ?", tokenId, poolId, common.TopUpStatusPending).
+		Order("id DESC").
+		First(&o).Error
+	if err != nil {
+		return nil, err
+	}
+	return &o, nil
+}
+
+func GetTokenPoolSubscriptionOrderForToken(tradeNo string, tokenId int) (*TokenPoolSubscriptionOrder, error) {
+	if tradeNo == "" {
+		return nil, errors.New("empty trade_no")
+	}
+	if tokenId <= 0 {
+		return nil, errors.New("invalid token_id")
+	}
+	var o TokenPoolSubscriptionOrder
+	err := DB.Where("trade_no = ? AND token_id = ?", tradeNo, tokenId).First(&o).Error
+	if err != nil {
+		return nil, err
+	}
+	return &o, nil
+}
+
+// ExpirePendingTokenPoolSubscriptionOrders marks other pending orders for the pair as expired.
+func ExpirePendingTokenPoolSubscriptionOrders(tokenId, poolId int, exceptTradeNo string) error {
+	if tokenId <= 0 || poolId <= 0 {
+		return nil
+	}
+	q := DB.Model(&TokenPoolSubscriptionOrder{}).
+		Where("token_id = ? AND pool_id = ? AND status = ?", tokenId, poolId, common.TopUpStatusPending)
+	if exceptTradeNo != "" {
+		q = q.Where("trade_no <> ?", exceptTradeNo)
+	}
+	return q.Update("status", common.TopUpStatusExpired).Error
+}
+
 func InsertTokenPoolSubscriptionOrder(o *TokenPoolSubscriptionOrder) error {
 	if o == nil {
 		return errors.New("order is nil")
@@ -78,6 +124,19 @@ func InsertTokenPoolSubscriptionOrder(o *TokenPoolSubscriptionOrder) error {
 		o.Status = common.TopUpStatusPending
 	}
 	return DB.Create(o).Error
+}
+
+// GetTokenPoolSubscription loads the subscription row for (token_id, pool_id).
+func GetTokenPoolSubscription(tokenId, poolId int) (*TokenPoolSubscription, error) {
+	if tokenId <= 0 || poolId <= 0 {
+		return nil, errors.New("invalid token_id or pool_id")
+	}
+	var sub TokenPoolSubscription
+	err := DB.Where("token_id = ? AND pool_id = ?", tokenId, poolId).First(&sub).Error
+	if err != nil {
+		return nil, err
+	}
+	return &sub, nil
 }
 
 // TokenHasActivePoolSubscription returns true if token has an active paid window for the pool.

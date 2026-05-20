@@ -279,6 +279,7 @@ func SetApiRouter(router *gin.Engine) {
 			{
 				tokenUsageRoute.GET("/", controller.GetTokenUsage)
 				tokenUsageRoute.GET("/pool", controller.GetTokenPoolUsageSelf)
+				tokenUsageRoute.GET("/pool/subscription/order", controller.GetTokenPoolSubscriptionOrderSelf)
 			}
 		}
 
