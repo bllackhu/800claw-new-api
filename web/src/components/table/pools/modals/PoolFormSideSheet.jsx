@@ -2,6 +2,7 @@ import React from 'react';
 import {
   Button,
   Input,
+  InputNumber,
   Select,
   SideSheet,
   Space,
@@ -75,34 +76,21 @@ const PoolFormSideSheet = ({
         </Select>
         <Input
           placeholder='monthly_price_cny (0 = no paid pool gate, decimals OK e.g. 1.50)'
-          value={formData.monthly_price_cny_input ?? '0'}
-          onChange={(value) =>
+          // Use InputNumber so the browser/keyboard allows decimals (the old Input behaved like an integer in some cases).
+          // Backend persists monthly_price_cny as decimal(10,2), so precision=2 is appropriate.
+          // NOTE: Semi's InputNumber value is numeric; we store a normalized string in monthly_price_cny_input.
+          value={Number(formData.monthly_price_cny_input ?? formData.monthly_price_cny ?? 0)}
+          min={0}
+          step={0.01}
+          precision={2}
+          onChange={(value) => {
+            const n = typeof value === 'number' && Number.isFinite(value) ? value : 0;
             setFormData((prev) => ({
               ...prev,
-              monthly_price_cny_input: value,
-            }))
-          }
-          onBlur={() =>
-            setFormData((prev) => {
-              const raw = String(prev.monthly_price_cny_input ?? '').trim();
-              if (raw === '') {
-                return {
-                  ...prev,
-                  monthly_price_cny: 0,
-                  monthly_price_cny_input: '0',
-                };
-              }
-              const n = Number.parseFloat(raw);
-              if (!Number.isFinite(n) || n < 0) {
-                return prev;
-              }
-              return {
-                ...prev,
-                monthly_price_cny: n,
-                monthly_price_cny_input: raw,
-              };
-            })
-          }
+              monthly_price_cny: n,
+              monthly_price_cny_input: String(n),
+            }));
+          }}
         />
         <Input
           placeholder='billing_currency (e.g. CNY)'
