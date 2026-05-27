@@ -42,6 +42,7 @@ type TokenPoolUsageWindow struct {
 	WindowSeconds int    `json:"window_seconds"`
 	Available     bool   `json:"available"`
 	Count         *int64 `json:"count,omitempty"`
+	LimitCount    *int64 `json:"limit_count,omitempty"`
 	Reason        string `json:"reason,omitempty"`
 }
 
@@ -334,6 +335,17 @@ func buildTokenPoolUsageItemWithDeps(token *model.Token, windows []string, windo
 		return nil, err
 	}
 	validTokenPolicies, maxWindowSeconds := filterValidRequestCountPolicies(tokenPolicies)
+	limitByWindowSeconds := make(map[int]int64, len(validTokenPolicies))
+	for _, policy := range validTokenPolicies {
+		if policy == nil || policy.WindowSeconds <= 0 || policy.LimitCount <= 0 {
+			continue
+		}
+		limit := int64(policy.LimitCount)
+		// If duplicate windows exist, keep the strictest (smallest) limit.
+		if old, ok := limitByWindowSeconds[policy.WindowSeconds]; !ok || limit < old {
+			limitByWindowSeconds[policy.WindowSeconds] = limit
+		}
+	}
 	if len(validTokenPolicies) == 0 || maxWindowSeconds <= 0 {
 		userPolicies, userErr := deps.loadPolicies(pool.Id, model.PoolQuotaScopeUser)
 		if userErr != nil {
@@ -360,6 +372,10 @@ func buildTokenPoolUsageItemWithDeps(token *model.Token, windows []string, windo
 		result := &TokenPoolUsageWindow{
 			Window:        window,
 			WindowSeconds: windowSeconds[window],
+		}
+		if limit, ok := limitByWindowSeconds[result.WindowSeconds]; ok {
+			v := limit
+			result.LimitCount = &v
 		}
 		if result.WindowSeconds > maxWindowSeconds {
 			result.Available = false

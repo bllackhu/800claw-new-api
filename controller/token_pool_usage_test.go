@@ -112,6 +112,57 @@ func TestBuildTokenPoolUsageItem_WindowNotRetained(t *testing.T) {
 	require.Equal(t, 5*3600, item.RetentionWindowSeconds)
 	require.False(t, item.Usage["30d"].Available)
 	require.Equal(t, tokenPoolUsageReasonWindowNotRetained, item.Usage["30d"].Reason)
+	require.Nil(t, item.Usage["30d"].LimitCount)
+}
+
+func TestBuildTokenPoolUsageItem_IncludeWindowLimitCount(t *testing.T) {
+	token := &model.Token{Id: 14, UserId: 104, Name: "token-d", Group: "g-test"}
+	pool := &model.Pool{Id: 23, Name: "limit_pool"}
+	windows, windowSeconds, err := normalizeTokenPoolUsageWindows([]string{"5h", "7d"})
+	require.NoError(t, err)
+
+	item, err := buildTokenPoolUsageItemWithDeps(token, windows, windowSeconds, tokenPoolUsageBuilderDeps{
+		resolvePool: func(token *model.Token) (*model.Pool, error) {
+			return pool, nil
+		},
+		loadPolicies: func(poolId int, scopeType string) ([]*model.PoolQuotaPolicy, error) {
+			if scopeType != model.PoolQuotaScopeToken {
+				return nil, nil
+			}
+			return []*model.PoolQuotaPolicy{
+				{
+					Metric:        model.PoolQuotaMetricRequestCount,
+					ScopeType:     model.PoolQuotaScopeToken,
+					WindowSeconds: 5 * 3600,
+					LimitCount:    300,
+					Enabled:       true,
+				},
+				{
+					Metric:        model.PoolQuotaMetricRequestCount,
+					ScopeType:     model.PoolQuotaScopeToken,
+					WindowSeconds: 7 * 24 * 3600,
+					LimitCount:    3000,
+					Enabled:       true,
+				},
+			}, nil
+		},
+		isRedisReady: func() bool { return true },
+		countByWindow: func(redisKey string, windowSeconds int) (int64, error) {
+			if windowSeconds == 5*3600 {
+				return 4, nil
+			}
+			return 16, nil
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, item.Usage["5h"])
+	require.NotNil(t, item.Usage["7d"])
+	require.NotNil(t, item.Usage["5h"].Count)
+	require.NotNil(t, item.Usage["5h"].LimitCount)
+	require.NotNil(t, item.Usage["7d"].LimitCount)
+	require.EqualValues(t, 4, *item.Usage["5h"].Count)
+	require.EqualValues(t, 300, *item.Usage["5h"].LimitCount)
+	require.EqualValues(t, 3000, *item.Usage["7d"].LimitCount)
 }
 
 func TestNormalizeTokenPoolUsageWindows_Defaults(t *testing.T) {
