@@ -36,6 +36,7 @@ import PoolFormSideSheet from './modals/PoolFormSideSheet';
 import PoolChannelFormSideSheet from './modals/PoolChannelFormSideSheet';
 import PoolPolicyFormSideSheet from './modals/PoolPolicyFormSideSheet';
 import PoolBindingFormSideSheet from './modals/PoolBindingFormSideSheet';
+import TokenSubscriptionFormSideSheet from './modals/TokenSubscriptionFormSideSheet';
 
 const { Text } = Typography;
 
@@ -118,6 +119,24 @@ const PoolsTable = () => {
     loadSubscriptionOrders,
     subOrderColumns,
 
+    tokenSubItems,
+    tokenSubTotal,
+    tokenSubPage,
+    tokenSubLoading,
+    tokenSubFilterTokenId,
+    setTokenSubFilterTokenId,
+    tokenSubFilterPoolId,
+    setTokenSubFilterPoolId,
+    loadTokenSubscriptions,
+    tokenSubColumns,
+    tokenSubForm,
+    setTokenSubForm,
+    showTokenSubForm,
+    openCreateTokenSub,
+    closeTokenSubForm,
+    saveTokenSubscription,
+    revokeTokenSubscriptionNow,
+
     usageLoading,
     usageQuery,
     setUsageQuery,
@@ -161,6 +180,15 @@ const PoolsTable = () => {
         onCancel={closeBindingForm}
         t={t}
       />
+      <TokenSubscriptionFormSideSheet
+        visible={showTokenSubForm}
+        formData={tokenSubForm}
+        setFormData={setTokenSubForm}
+        onSubmit={saveTokenSubscription}
+        onCancel={closeTokenSubForm}
+        onRevokeNow={revokeTokenSubscriptionNow}
+        t={t}
+      />
       <div className='flex items-center justify-between mb-4'>
         <div>
           <Text strong>{t('Coding Plan')}</Text>
@@ -178,6 +206,7 @@ const PoolsTable = () => {
             if (activeTab === 'policy') loadPolicies(1);
             if (activeTab === 'binding') loadBindings(1);
             if (activeTab === 'sub_orders') loadSubscriptionOrders(subOrderPage);
+            if (activeTab === 'token_subs') loadTokenSubscriptions(tokenSubPage);
           }}
         >
           {t('Refresh')}
@@ -320,6 +349,53 @@ const PoolsTable = () => {
               total: policyTotal,
               onPageChange: (p) => loadPolicies(p),
             }}
+          />
+        </TabPane>
+
+        <TabPane className='pt-4' tab={t('Token subscriptions')} itemKey='token_subs'>
+          <div className='flex gap-2 mb-3 flex-wrap'>
+            <Button type='primary' onClick={openCreateTokenSub}>
+              {t('Create')}
+            </Button>
+            <Input
+              placeholder='filter token_id'
+              value={tokenSubFilterTokenId}
+              onChange={(value) => setTokenSubFilterTokenId(value)}
+              style={{ maxWidth: 160 }}
+            />
+            <Input
+              placeholder='filter pool_id'
+              value={tokenSubFilterPoolId}
+              onChange={(value) => setTokenSubFilterPoolId(value)}
+              style={{ maxWidth: 160 }}
+            />
+            <Button onClick={() => loadTokenSubscriptions(1)}>{t('Apply Filter')}</Button>
+            <Button
+              onClick={() => {
+                setTokenSubFilterTokenId('');
+                setTokenSubFilterPoolId('');
+                loadTokenSubscriptions(1, { tokenId: '', poolId: '' });
+              }}
+            >
+              {t('Clear Filters')}
+            </Button>
+          </div>
+          <Table
+            rowKey='id'
+            loading={tokenSubLoading}
+            columns={tokenSubColumns}
+            dataSource={tokenSubItems}
+            pagination={{
+              currentPage: tokenSubPage,
+              pageSize: PAGE_SIZE,
+              total: tokenSubTotal,
+              onPageChange: (p) => loadTokenSubscriptions(p),
+            }}
+            empty={
+              <Empty description={t('No data')}>
+                <span />
+              </Empty>
+            }
           />
         </TabPane>
 

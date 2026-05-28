@@ -35,6 +35,19 @@ const formatMonthlyPriceCnyInput = (value) => {
   return String(value);
 };
 
+/** Admin token subscription: period end uses 23:59:59 on the chosen calendar day (local). */
+export const toPeriodEndDateEndOfDay = (dateLike) => {
+  const d = dateLike ? new Date(dateLike) : new Date();
+  if (Number.isNaN(d.getTime())) {
+    const fallback = new Date();
+    fallback.setHours(23, 59, 59, 0);
+    return fallback;
+  }
+  const out = new Date(d);
+  out.setHours(23, 59, 59, 0);
+  return out;
+};
+
 const parseMonthlyPriceCny = (form) => {
   const raw =
     form.monthly_price_cny_input !== undefined &&
@@ -76,6 +89,20 @@ export const usePoolsData = () => {
   const [subOrderTotal, setSubOrderTotal] = useState(0);
   const [subOrderPage, setSubOrderPage] = useState(1);
   const [subOrderLoading, setSubOrderLoading] = useState(false);
+
+  const [tokenSubItems, setTokenSubItems] = useState([]);
+  const [tokenSubTotal, setTokenSubTotal] = useState(0);
+  const [tokenSubPage, setTokenSubPage] = useState(1);
+  const [tokenSubLoading, setTokenSubLoading] = useState(false);
+  const [tokenSubFilterTokenId, setTokenSubFilterTokenId] = useState('');
+  const [tokenSubFilterPoolId, setTokenSubFilterPoolId] = useState('');
+  const [tokenSubForm, setTokenSubForm] = useState({
+    id: 0,
+    token_id: '',
+    pool_id: '',
+    period_end_date: null,
+  });
+  const [showTokenSubForm, setShowTokenSubForm] = useState(false);
 
   const [channelItems, setChannelItems] = useState([]);
   const [channelTotal, setChannelTotal] = useState(0);
@@ -297,6 +324,47 @@ export const usePoolsData = () => {
     }
   }, [t]);
 
+  const formatTokenSubUnix = (unixSeconds) => {
+    if (!unixSeconds) {
+      return '—';
+    }
+    return new Date(unixSeconds * 1000).toLocaleString();
+  };
+
+  const loadTokenSubscriptions = useCallback(
+    async (targetPage, filters = {}) => {
+      setTokenSubLoading(true);
+      try {
+        const tokenId = filters.tokenId ?? tokenSubFilterTokenId;
+        const poolId = filters.poolId ?? tokenSubFilterPoolId;
+        const params = new URLSearchParams({
+          p: String(targetPage),
+          page_size: String(PAGE_SIZE),
+        });
+        if (String(tokenId).trim()) {
+          params.set('token_id', String(tokenId).trim());
+        }
+        if (String(poolId).trim()) {
+          params.set('pool_id', String(poolId).trim());
+        }
+        const res = await API.get(`/api/pool/token_subscriptions?${params.toString()}`);
+        if (!res?.data?.success) {
+          showError(res?.data?.message || t('Failed to load token subscriptions'));
+          return;
+        }
+        const data = res.data.data;
+        setTokenSubItems(data?.items || []);
+        setTokenSubTotal(data?.total || 0);
+        setTokenSubPage(data?.page || targetPage);
+      } catch (error) {
+        showError(getErrorMessage(error, t('Failed to load token subscriptions')));
+      } finally {
+        setTokenSubLoading(false);
+      }
+    },
+    [tokenSubFilterPoolId, tokenSubFilterTokenId, t],
+  );
+
   const handleTabChange = async (key) => {
     setActiveTab(key);
     if (key === 'pool' && poolItems.length === 0) await loadPools(1);
@@ -305,6 +373,8 @@ export const usePoolsData = () => {
     if (key === 'binding' && bindingItems.length === 0) await loadBindings(1);
     if (key === 'sub_orders' && subOrderItems.length === 0)
       await loadSubscriptionOrders(1);
+    if (key === 'token_subs' && tokenSubItems.length === 0)
+      await loadTokenSubscriptions(1);
   };
 
   const resetPoolForm = () =>
@@ -346,6 +416,91 @@ export const usePoolsData = () => {
       priority: 0,
       enabled: true,
     });
+  const resetTokenSubForm = () =>
+    setTokenSubForm({
+      id: 0,
+      token_id: '',
+      pool_id: '',
+      period_end_date: toPeriodEndDateEndOfDay(),
+    });
+  const openCreateTokenSub = () => {
+    resetTokenSubForm();
+    setShowTokenSubForm(true);
+  };
+  const openEditTokenSub = (record) => {
+    setTokenSubForm({
+      id: record.id,
+      token_id: String(record.token_id ?? ''),
+      pool_id: String(record.pool_id ?? ''),
+      period_end_date: record.period_end
+        ? toPeriodEndDateEndOfDay(new Date(record.period_end * 1000))
+        : toPeriodEndDateEndOfDay(),
+    });
+    setShowTokenSubForm(true);
+  };
+  const closeTokenSubForm = () => {
+    setShowTokenSubForm(false);
+    resetTokenSubForm();
+  };
+  const saveTokenSubscription = async () => {
+    const tokenId = parseInt(String(tokenSubForm.token_id).trim(), 10);
+    const poolId = parseInt(String(tokenSubForm.pool_id).trim(), 10);
+    if (!tokenId || !poolId) {
+      showError(t('token_id and pool_id are required'));
+      return;
+    }
+    if (!tokenSubForm.period_end_date) {
+      showError(t('Subscription period end is required'));
+      return;
+    }
+    const periodEnd = Math.floor(
+      toPeriodEndDateEndOfDay(tokenSubForm.period_end_date).getTime() / 1000,
+    );
+    if (!Number.isFinite(periodEnd) || periodEnd <= 0) {
+      showError(t('Invalid subscription period end'));
+      return;
+    }
+    try {
+      const res = await API.put('/api/pool/token_subscription', {
+        token_id: tokenId,
+        pool_id: poolId,
+        period_end: periodEnd,
+      });
+      if (!res?.data?.success) {
+        showError(res?.data?.message || t('Failed to save token subscription'));
+        return;
+      }
+      showSuccess(t('Token subscription saved'));
+      closeTokenSubForm();
+      await loadTokenSubscriptions(tokenSubPage);
+    } catch (error) {
+      showError(getErrorMessage(error, t('Failed to save token subscription')));
+    }
+  };
+  const revokeTokenSubscriptionNow = async () => {
+    const tokenId = parseInt(String(tokenSubForm.token_id).trim(), 10);
+    const poolId = parseInt(String(tokenSubForm.pool_id).trim(), 10);
+    if (!tokenId || !poolId) {
+      return;
+    }
+    const periodEnd = Math.floor(Date.now() / 1000);
+    try {
+      const res = await API.put('/api/pool/token_subscription', {
+        token_id: tokenId,
+        pool_id: poolId,
+        period_end: periodEnd,
+      });
+      if (!res?.data?.success) {
+        showError(res?.data?.message || t('Failed to revoke token subscription'));
+        return;
+      }
+      showSuccess(t('Token subscription revoked'));
+      closeTokenSubForm();
+      await loadTokenSubscriptions(tokenSubPage);
+    } catch (error) {
+      showError(getErrorMessage(error, t('Failed to revoke token subscription')));
+    }
+  };
   const openCreatePool = () => {
     resetPoolForm();
     setShowPoolForm(true);
@@ -781,6 +936,43 @@ export const usePoolsData = () => {
     [],
   );
 
+  const tokenSubColumns = useMemo(
+    () => [
+      { title: 'ID', dataIndex: 'id', width: 72 },
+      { title: 'Token', dataIndex: 'token_id', width: 72 },
+      { title: 'Pool', dataIndex: 'pool_id', width: 72 },
+      {
+        title: t('Period start'),
+        dataIndex: 'period_start',
+        width: 168,
+        render: (v) => formatTokenSubUnix(v),
+      },
+      {
+        title: t('Period end'),
+        dataIndex: 'period_end',
+        width: 168,
+        render: (v) => formatTokenSubUnix(v),
+      },
+      {
+        title: t('Active'),
+        dataIndex: 'active',
+        width: 88,
+        render: (v) => boolTag(v),
+      },
+      { title: t('Last order'), dataIndex: 'last_order_id', width: 96 },
+      {
+        title: 'Actions',
+        dataIndex: 'operate',
+        render: (_, record) => (
+          <Button size='small' type='tertiary' onClick={() => openEditTokenSub(record)}>
+            {t('Edit')}
+          </Button>
+        ),
+      },
+    ],
+    [t],
+  );
+
   const channelColumns = useMemo(
     () => [
       { title: 'ID', dataIndex: 'id', width: 80 },
@@ -1018,6 +1210,24 @@ export const usePoolsData = () => {
     subOrderLoading,
     loadSubscriptionOrders,
     subOrderColumns,
+
+    tokenSubItems,
+    tokenSubTotal,
+    tokenSubPage,
+    tokenSubLoading,
+    tokenSubFilterTokenId,
+    setTokenSubFilterTokenId,
+    tokenSubFilterPoolId,
+    setTokenSubFilterPoolId,
+    loadTokenSubscriptions,
+    tokenSubColumns,
+    tokenSubForm,
+    setTokenSubForm,
+    showTokenSubForm,
+    openCreateTokenSub,
+    closeTokenSubForm,
+    saveTokenSubscription,
+    revokeTokenSubscriptionNow,
 
     usageLoading,
     usageQuery,

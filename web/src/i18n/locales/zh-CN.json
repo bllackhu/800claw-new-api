@@ -3663,6 +3663,23 @@
     "默认折叠侧边栏": "默认折叠侧边栏",
     "默认测试模型": "默认测试模型",
     "默认用户消息": "你好",
-    "默认补全倍率": "默认补全倍率"
+    "默认补全倍率": "默认补全倍率",
+    "Token subscriptions": "Token subscriptions",
+    "Create Token Subscription": "Create Token Subscription",
+    "Update Token Subscription": "Update Token Subscription",
+    "Subscription period end": "Subscription period end",
+    "Failed to load token subscriptions": "Failed to load token subscriptions",
+    "Token subscription saved": "Token subscription saved",
+    "Failed to save token subscription": "Failed to save token subscription",
+    "Token subscription revoked": "Token subscription revoked",
+    "Failed to revoke token subscription": "Failed to revoke token subscription",
+    "Revoke now": "Revoke now",
+    "Period start": "Period start",
+    "Period end": "Period end",
+    "Active": "Active",
+    "Last order": "Last order",
+    "token_id and pool_id are required": "token_id and pool_id are required",
+    "Subscription period end is required": "Subscription period end is required",
+    "Invalid subscription period end": "Invalid subscription period end"
   }
 }

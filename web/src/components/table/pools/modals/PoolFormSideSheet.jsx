@@ -74,15 +74,14 @@ const PoolFormSideSheet = ({
           <Select.Option value='1'>Enabled</Select.Option>
           <Select.Option value='2'>Disabled</Select.Option>
         </Select>
-        <Input
+        <InputNumber
           placeholder='monthly_price_cny (0 = no paid pool gate, decimals OK e.g. 1.50)'
-          // Use InputNumber so the browser/keyboard allows decimals (the old Input behaved like an integer in some cases).
-          // Backend persists monthly_price_cny as decimal(10,2), so precision=2 is appropriate.
-          // NOTE: Semi's InputNumber value is numeric; we store a normalized string in monthly_price_cny_input.
+          style={{ width: '100%' }}
           value={Number(formData.monthly_price_cny_input ?? formData.monthly_price_cny ?? 0)}
           min={0}
           step={0.01}
           precision={2}
+          hideButtons
           onChange={(value) => {
             const n = typeof value === 'number' && Number.isFinite(value) ? value : 0;
             setFormData((prev) => ({

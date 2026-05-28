@@ -307,6 +307,8 @@ func SetApiRouter(router *gin.Engine) {
 			poolRoute.DELETE("/binding/:id", controller.DeletePoolBinding)
 			poolRoute.GET("/usage", controller.GetPoolRollingUsage)
 			poolRoute.GET("/subscription_orders", controller.GetPoolSubscriptionOrders)
+			poolRoute.GET("/token_subscriptions", controller.GetTokenPoolSubscriptions)
+			poolRoute.PUT("/token_subscription", controller.PutTokenPoolSubscription)
 		}
 
 		poolSelfRoute := apiRouter.Group("/pool")

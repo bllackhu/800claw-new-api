@@ -17,8 +17,7 @@ import (
 const tokenPoolUsageDataSource = "rolling_redis"
 
 const (
-	tokenDisplayNameFallback = "API token"
-	poolDisplayNameFallback  = "Pool"
+	poolDisplayNameFallback = "Pool"
 )
 
 const (
@@ -48,7 +47,6 @@ type TokenPoolUsageWindow struct {
 
 type TokenPoolUsageItem struct {
 	TokenId                int                              `json:"token_id"`
-	TokenName              string                           `json:"token_name,omitempty"`
 	PoolId                 int                              `json:"pool_id,omitempty"`
 	PoolName               string                           `json:"pool_name,omitempty"`
 	ScopeType              string                           `json:"scope_type,omitempty"`
@@ -102,16 +100,6 @@ type TokenPoolResolvedPoolSummary struct {
 	MonthlyPriceCny float64 `json:"monthly_price_cny"`
 }
 
-func tokenDisplayName(token *model.Token) string {
-	if token == nil {
-		return tokenDisplayNameFallback
-	}
-	if name := strings.TrimSpace(token.Name); name != "" {
-		return name
-	}
-	return tokenDisplayNameFallback
-}
-
 func poolDisplayName(pool *model.Pool) string {
 	if pool == nil {
 		return poolDisplayNameFallback
@@ -122,16 +110,11 @@ func poolDisplayName(pool *model.Pool) string {
 	return poolDisplayNameFallback
 }
 
-func applyTokenPoolUsageDisplayNames(item *TokenPoolUsageItem, token *model.Token, pool *model.Pool) string {
-	displayToken := tokenDisplayName(token)
-	if item != nil {
-		item.TokenName = displayToken
-		if pool != nil && pool.Id > 0 {
-			displayPool := poolDisplayName(pool)
-			item.PoolName = displayPool
-		}
+func applyTokenPoolUsagePoolName(item *TokenPoolUsageItem, pool *model.Pool) {
+	if item == nil || pool == nil || pool.Id <= 0 {
+		return
 	}
-	return displayToken
+	item.PoolName = poolDisplayName(pool)
 }
 
 func buildTokenPoolSubscriptionInfo(token *model.Token, pool *model.Pool) (*TokenPoolSubscriptionInfo, error) {
@@ -313,7 +296,6 @@ func buildTokenPoolUsageItem(token *model.Token, windows []string, windowSeconds
 func buildTokenPoolUsageItemWithDeps(token *model.Token, windows []string, windowSeconds map[string]int, deps tokenPoolUsageBuilderDeps) (*TokenPoolUsageItem, error) {
 	item := &TokenPoolUsageItem{
 		TokenId:    token.Id,
-		TokenName:  token.Name,
 		DataSource: tokenPoolUsageDataSource,
 		Usage:      make(map[string]*TokenPoolUsageWindow, len(windows)),
 	}
@@ -500,13 +482,12 @@ func GetTokenPoolUsageSelf(c *gin.Context) {
 		common.ApiError(c, resErr)
 		return
 	}
-	displayTokenName := applyTokenPoolUsageDisplayNames(item, token, resolved)
+	applyTokenPoolUsagePoolName(item, resolved)
 	payload := gin.H{
-		"item":                item,
-		"windows":             windows,
-		"data_source":         tokenPoolUsageDataSource,
-		"llm_token_usage":     llmUsage,
-		"token_display_name":  displayTokenName,
+		"item":            item,
+		"windows":         windows,
+		"data_source":     tokenPoolUsageDataSource,
+		"llm_token_usage": llmUsage,
 	}
 	if resolved != nil && resolved.Id > 0 {
 		displayPoolName := poolDisplayName(resolved)

@@ -231,3 +231,83 @@ func ListTokenPoolSubscriptionOrders(offset, limit int) ([]*TokenPoolSubscriptio
 	err := q.Order("id DESC").Find(&items).Error
 	return items, total, err
 }
+
+// ListTokenPoolSubscriptions returns subscription rows with optional token_id / pool_id filters.
+func ListTokenPoolSubscriptions(offset, limit, tokenIdFilter, poolIdFilter int) ([]*TokenPoolSubscription, int64, error) {
+	q := DB.Model(&TokenPoolSubscription{})
+	if tokenIdFilter > 0 {
+		q = q.Where("token_id = ?", tokenIdFilter)
+	}
+	if poolIdFilter > 0 {
+		q = q.Where("pool_id = ?", poolIdFilter)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if limit > 0 {
+		q = q.Limit(limit).Offset(offset)
+	}
+	var items []*TokenPoolSubscription
+	err := q.Order("id DESC").Find(&items).Error
+	return items, total, err
+}
+
+// AdminUpsertTokenPoolSubscription sets absolute period_start / period_end for (token_id, pool_id).
+// Manual grants use last_order_id = 0 on create; existing last_order_id is preserved on update.
+func AdminUpsertTokenPoolSubscription(tokenId, poolId int, periodStart, periodEnd int64) (*TokenPoolSubscription, error) {
+	if tokenId <= 0 || poolId <= 0 {
+		return nil, errors.New("invalid token_id or pool_id")
+	}
+	if periodEnd <= 0 {
+		return nil, errors.New("invalid period_end")
+	}
+	if _, err := GetTokenById(tokenId); err != nil {
+		return nil, fmt.Errorf("token not found: %w", err)
+	}
+	if _, err := GetPoolById(poolId); err != nil {
+		return nil, fmt.Errorf("pool not found: %w", err)
+	}
+
+	now := common.GetTimestamp()
+	var result TokenPoolSubscription
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var sub TokenPoolSubscription
+		err := tx.Where("token_id = ? AND pool_id = ?", tokenId, poolId).First(&sub).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			start := periodStart
+			if start <= 0 {
+				start = now
+			}
+			sub = TokenPoolSubscription{
+				TokenId:     tokenId,
+				PoolId:      poolId,
+				PeriodStart: start,
+				PeriodEnd:   periodEnd,
+				LastOrderId: 0,
+			}
+			if err := tx.Create(&sub).Error; err != nil {
+				return err
+			}
+			result = sub
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		updates := map[string]interface{}{
+			"period_end": periodEnd,
+		}
+		if periodStart > 0 {
+			updates["period_start"] = periodStart
+		}
+		if err := tx.Model(&sub).Updates(updates).Error; err != nil {
+			return err
+		}
+		return tx.Where("token_id = ? AND pool_id = ?", tokenId, poolId).First(&result).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}

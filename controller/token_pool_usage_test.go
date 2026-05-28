@@ -198,7 +198,6 @@ func TestGetTokenPoolUsageSelf_DefaultWindows(t *testing.T) {
 		require.Equal(t, 30*24*3600, windowSeconds["30d"])
 		return &TokenPoolUsageItem{
 			TokenId:    token.Id,
-			TokenName:  token.Name,
 			DataSource: tokenPoolUsageDataSource,
 			Usage: map[string]*TokenPoolUsageWindow{
 				"5h": {
@@ -246,7 +245,6 @@ func TestGetTokenPoolUsageSelf_DefaultWindows(t *testing.T) {
 	require.Equal(t, []string{"5h", "7d", "30d"}, payload.Windows)
 	require.Equal(t, tokenPoolUsageDataSource, payload.DataSource)
 	require.Equal(t, token.Id, payload.Item.TokenId)
-	require.Equal(t, "agent-token", payload.Item.TokenName)
 	require.Equal(t, pool.Id, payload.ResolvedPoolId)
 	require.Equal(t, pool.Name, payload.ResolvedPoolName)
 	require.Contains(t, payload.Item.Usage, "5h")
@@ -291,7 +289,6 @@ func TestGetTokenPoolUsageSelf_LLMTokenAggregates(t *testing.T) {
 	buildTokenPoolUsageItemFunc = func(token *model.Token, windows []string, windowSeconds map[string]int) (*TokenPoolUsageItem, error) {
 		return &TokenPoolUsageItem{
 			TokenId:    token.Id,
-			TokenName:  token.Name,
 			DataSource: tokenPoolUsageDataSource,
 			Usage:      map[string]*TokenPoolUsageWindow{},
 		}, nil
@@ -354,7 +351,7 @@ func migratePoolTablesForTokenUsageTests(t *testing.T, db *gorm.DB) {
 	))
 }
 
-func TestGetTokenPoolUsageSelf_EmptyTokenNameFallback(t *testing.T) {
+func TestGetTokenPoolUsageSelf_EmptyPoolNameFallback(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
 	migratePoolTablesForTokenUsageTests(t, db)
 	token := seedToken(t, db, 92, "", "unnamed-token-key-1234")
@@ -374,7 +371,6 @@ func TestGetTokenPoolUsageSelf_EmptyTokenNameFallback(t *testing.T) {
 	buildTokenPoolUsageItemFunc = func(token *model.Token, windows []string, windowSeconds map[string]int) (*TokenPoolUsageItem, error) {
 		return &TokenPoolUsageItem{
 			TokenId:    token.Id,
-			TokenName:  token.Name,
 			PoolId:     pool.Id,
 			DataSource: tokenPoolUsageDataSource,
 			Usage:      map[string]*TokenPoolUsageWindow{},
@@ -394,16 +390,13 @@ func TestGetTokenPoolUsageSelf_EmptyTokenNameFallback(t *testing.T) {
 	require.True(t, response.Success)
 
 	var payload struct {
-		TokenDisplayName  string                         `json:"token_display_name"`
-		ResolvedPoolName  string                         `json:"resolved_pool_name"`
-		Item              TokenPoolUsageItem             `json:"item"`
-		ResolvedPool      TokenPoolResolvedPoolSummary   `json:"resolved_pool"`
-		PoolSubscription  TokenPoolSubscriptionInfo      `json:"pool_subscription"`
+		ResolvedPoolName string                       `json:"resolved_pool_name"`
+		Item             TokenPoolUsageItem           `json:"item"`
+		ResolvedPool     TokenPoolResolvedPoolSummary `json:"resolved_pool"`
+		PoolSubscription TokenPoolSubscriptionInfo    `json:"pool_subscription"`
 	}
 	require.NoError(t, common.Unmarshal(response.Data, &payload))
-	require.Equal(t, tokenDisplayNameFallback, payload.TokenDisplayName)
 	require.Equal(t, poolDisplayNameFallback, payload.ResolvedPoolName)
-	require.Equal(t, tokenDisplayNameFallback, payload.Item.TokenName)
 	require.Equal(t, poolDisplayNameFallback, payload.ResolvedPool.Name)
 	require.Equal(t, "desc", payload.ResolvedPool.Description)
 	require.True(t, payload.PoolSubscription.CheckoutAvailable)
