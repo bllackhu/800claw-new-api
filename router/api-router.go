@@ -267,10 +267,10 @@ func SetApiRouter(router *gin.Engine) {
 		}
 
 		usageRoute := apiRouter.Group("/usage")
-		usageRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
+		usageRoute.Use(middleware.CORS())
 		{
 			usageTokenCheckout := usageRoute.Group("/token")
-			usageTokenCheckout.Use(middleware.TokenAuth(), middleware.CriticalRateLimit())
+			usageTokenCheckout.Use(middleware.CriticalRateLimit(), middleware.TokenAuth(), middleware.CriticalRateLimit())
 			{
 				usageTokenCheckout.POST("/pool/subscription/wechat/checkout", controller.RequestTokenPoolSubscriptionWechatCheckout)
 			}

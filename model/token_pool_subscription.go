@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
@@ -155,6 +156,31 @@ func TokenHasActivePoolSubscription(tokenId, poolId int) (bool, error) {
 	return n > 0, nil
 }
 
+var poolSubscriptionLocation = func() *time.Location {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return time.FixedZone("CST", 8*3600)
+	}
+	return loc
+}()
+
+const secondsPerDay int64 = 86400
+
+// periodEndAtBillingEOD returns unix seconds for 23:59:59 on the expiry calendar day
+// (anchor local date + billing period in whole days) in Asia/Shanghai.
+func periodEndAtBillingEOD(anchorUnix, periodSeconds int64) int64 {
+	if periodSeconds < secondsPerDay {
+		periodSeconds = secondsPerDay
+	}
+	periodDays := periodSeconds / secondsPerDay
+	anchor := time.Unix(anchorUnix, 0).In(poolSubscriptionLocation)
+	y, m, d := anchor.Date()
+	midnight := time.Date(y, m, d, 0, 0, 0, 0, poolSubscriptionLocation)
+	expiryDay := midnight.AddDate(0, 0, int(periodDays))
+	endOfDay := time.Date(expiryDay.Year(), expiryDay.Month(), expiryDay.Day(), 23, 59, 59, 0, poolSubscriptionLocation)
+	return endOfDay.Unix()
+}
+
 // CompleteTokenPoolSubscriptionFromNotify marks the order paid (once) and extends subscription.
 func CompleteTokenPoolSubscriptionFromNotify(tradeNo, wechatTxnId, rawJSON string, amountTotal int64, currency string) error {
 	if tradeNo == "" {
@@ -201,7 +227,7 @@ func upsertTokenPoolSubscriptionTx(tx *gorm.DB, tokenId, poolId, orderId int, pe
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	newEnd := base + periodSeconds
+	newEnd := periodEndAtBillingEOD(base, periodSeconds)
 	if sub.Id == 0 {
 		sub = TokenPoolSubscription{
 			TokenId:     tokenId,
