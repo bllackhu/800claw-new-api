@@ -28,8 +28,7 @@ func TestBuildTokenPoolUsageItem_NoResolvedPool(t *testing.T) {
 		loadPolicies: func(poolId int, scopeType string) ([]*model.PoolQuotaPolicy, error) {
 			return nil, nil
 		},
-		isRedisReady: func() bool { return false },
-		countByWindow: func(redisKey string, windowSeconds int) (int64, error) {
+		countRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
 			return 0, nil
 		},
 	})
@@ -66,8 +65,7 @@ func TestBuildTokenPoolUsageItem_UserScopeOnly(t *testing.T) {
 			}
 			return nil, nil
 		},
-		isRedisReady: func() bool { return false },
-		countByWindow: func(redisKey string, windowSeconds int) (int64, error) {
+		countRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
 			return 0, nil
 		},
 	})
@@ -103,8 +101,7 @@ func TestBuildTokenPoolUsageItem_WindowNotRetained(t *testing.T) {
 			}
 			return nil, nil
 		},
-		isRedisReady: func() bool { return true },
-		countByWindow: func(redisKey string, windowSeconds int) (int64, error) {
+		countRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
 			return 0, nil
 		},
 	})
@@ -148,8 +145,7 @@ func TestBuildTokenPoolUsageItem_IncludeWindowLimitCount(t *testing.T) {
 				},
 			}, nil
 		},
-		isRedisReady: func() bool { return true },
-		countByWindow: func(redisKey string, windowSeconds int) (int64, error) {
+		countRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
 			if windowSeconds == 5*3600 {
 				return 4, nil
 			}
@@ -412,6 +408,7 @@ func migratePoolTablesForTokenUsageTests(t *testing.T, db *gorm.DB) {
 	require.NoError(t, db.AutoMigrate(
 		&model.Pool{},
 		&model.PoolBinding{},
+		&model.PoolQuotaPolicy{},
 		&model.TokenPoolSubscription{},
 		&model.TokenPoolSubscriptionOrder{},
 	))
@@ -516,4 +513,107 @@ func TestGetTokenPoolUsageSelf_ActiveSubscription(t *testing.T) {
 	require.NoError(t, common.Unmarshal(response.Data, &payload))
 	require.True(t, payload.PoolSubscription.Active)
 	require.Greater(t, payload.PoolSubscription.PeriodEnd, now)
+}
+
+func TestBuildTokenPoolUsageItem_RequestCountsSurvivePoolChange(t *testing.T) {
+	token := &model.Token{Id: 55, UserId: 105, Name: "pool-hop", Group: "g-test"}
+	poolA := &model.Pool{Id: 31, Name: "pool_a"}
+	poolB := &model.Pool{Id: 32, Name: "pool_b"}
+	windows, windowSeconds, err := normalizeTokenPoolUsageWindows([]string{"5h"})
+	require.NoError(t, err)
+
+	policies := []*model.PoolQuotaPolicy{
+		{
+			Metric:        model.PoolQuotaMetricRequestCount,
+			ScopeType:     model.PoolQuotaScopeToken,
+			WindowSeconds: 5 * 3600,
+			LimitCount:    1500,
+			Enabled:       true,
+		},
+	}
+	countFn := func(tokenId int, windowSeconds int) (int64, error) {
+		require.Equal(t, token.Id, tokenId)
+		return 42, nil
+	}
+
+	itemA, err := buildTokenPoolUsageItemWithDeps(token, windows, windowSeconds, tokenPoolUsageBuilderDeps{
+		resolvePool: func(token *model.Token) (*model.Pool, error) { return poolA, nil },
+		loadPolicies: func(poolId int, scopeType string) ([]*model.PoolQuotaPolicy, error) {
+			if scopeType == model.PoolQuotaScopeToken {
+				return policies, nil
+			}
+			return nil, nil
+		},
+		countRequestsByToken: countFn,
+	})
+	require.NoError(t, err)
+
+	itemB, err := buildTokenPoolUsageItemWithDeps(token, windows, windowSeconds, tokenPoolUsageBuilderDeps{
+		resolvePool: func(token *model.Token) (*model.Pool, error) { return poolB, nil },
+		loadPolicies: func(poolId int, scopeType string) ([]*model.PoolQuotaPolicy, error) {
+			if scopeType == model.PoolQuotaScopeToken {
+				return policies, nil
+			}
+			return nil, nil
+		},
+		countRequestsByToken: countFn,
+	})
+	require.NoError(t, err)
+	require.Equal(t, poolA.Id, itemA.PoolId)
+	require.Equal(t, poolB.Id, itemB.PoolId)
+	require.NotNil(t, itemA.Usage["5h"].Count)
+	require.NotNil(t, itemB.Usage["5h"].Count)
+	require.EqualValues(t, 42, *itemA.Usage["5h"].Count)
+	require.EqualValues(t, 42, *itemB.Usage["5h"].Count)
+}
+
+func TestGetTokenPoolUsageSelf_RequestCountsFromBuckets(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	migratePoolTablesForTokenUsageTests(t, db)
+	token := seedToken(t, db, 94, "req-bucket", "req-bucket-key-123456789012345678901234")
+	pool := &model.Pool{Name: "req_pool", Status: model.PoolStatusEnabled}
+	require.NoError(t, db.Create(pool).Error)
+	require.NoError(t, db.Create(&model.PoolBinding{
+		BindingType:  model.PoolBindingTypeToken,
+		BindingValue: strconv.Itoa(token.Id),
+		PoolId:       pool.Id,
+		Enabled:      true,
+	}).Error)
+	require.NoError(t, db.Create(&model.PoolQuotaPolicy{
+		PoolId:        pool.Id,
+		Metric:        model.PoolQuotaMetricRequestCount,
+		ScopeType:     model.PoolQuotaScopeToken,
+		WindowSeconds: 5 * 3600,
+		LimitCount:    1500,
+		Enabled:       true,
+	}).Error)
+
+	now := time.Now().Unix()
+	require.NoError(t, db.Create(&model.TokenLLMUsageBucket{
+		TokenId:      token.Id,
+		BucketStart:  model.AlignTokenLLMUsageBucketStart(now - 1800),
+		RequestCount: 7,
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/usage/token/pool", nil)
+	ctx.Set("token_id", token.Id)
+	ctx.Set("id", token.UserId)
+
+	GetTokenPoolUsageSelf(ctx)
+
+	var response tokenAPIResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	require.True(t, response.Success)
+
+	var payload struct {
+		Item TokenPoolUsageItem `json:"item"`
+	}
+	require.NoError(t, common.Unmarshal(response.Data, &payload))
+	require.Equal(t, tokenPoolUsageDataSource, payload.Item.DataSource)
+	require.NotNil(t, payload.Item.Usage["5h"])
+	require.True(t, payload.Item.Usage["5h"].Available)
+	require.NotNil(t, payload.Item.Usage["5h"].Count)
+	require.EqualValues(t, 7, *payload.Item.Usage["5h"].Count)
 }

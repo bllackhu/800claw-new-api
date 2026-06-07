@@ -371,10 +371,6 @@ func DeletePoolBinding(c *gin.Context) {
 }
 
 func GetPoolRollingUsage(c *gin.Context) {
-	if !common.RedisEnabled || common.RDB == nil {
-		common.ApiErrorMsg(c, "redis is required for rolling usage")
-		return
-	}
 	poolId, _ := strconv.Atoi(c.DefaultQuery("pool_id", "0"))
 	if poolId <= 0 {
 		common.ApiErrorMsg(c, "pool_id is required")
@@ -398,8 +394,42 @@ func GetPoolRollingUsage(c *gin.Context) {
 		}
 		scopeId = tokenId
 		scopeIdName = "token_id"
-		redisKey = fmt.Sprintf("pool:rq:events:%d:token:%d", poolId, tokenId)
+		redisKey = model.TokenRollingRequestRedisKey(tokenId)
+
+		windowSeconds, err := parseRollingWindow(c.DefaultQuery("window", "5h"))
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		since := time.Now().Unix() - int64(windowSeconds)
+		count, err := model.SumTokenLLMUsageBucketRequestCountByTokenSince(tokenId, since)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		resp := gin.H{
+			"pool_id":               poolId,
+			"scope_type":            scopeType,
+			"scope_id":              scopeId,
+			"window_seconds":        windowSeconds,
+			"used_count":            count,
+			"data_source":           "token_llm_rollups",
+			"enforcement_redis_key": redisKey,
+		}
+		if pool, poolErr := model.GetPoolById(poolId); poolErr == nil && pool != nil {
+			resp["pool_name"] = pool.Name
+		}
+		if token, tokenErr := model.GetTokenById(scopeId); tokenErr == nil && token != nil {
+			resp["token_name"] = token.Name
+		}
+		resp[scopeIdName] = scopeId
+		common.ApiSuccess(c, resp)
+		return
 	case model.PoolQuotaScopeUser, "":
+		if !common.RedisEnabled || common.RDB == nil {
+			common.ApiErrorMsg(c, "redis is required for rolling usage")
+			return
+		}
 		scopeType = model.PoolQuotaScopeUser
 		userId := scopeId
 		if userId <= 0 {

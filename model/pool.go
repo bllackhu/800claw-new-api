@@ -550,6 +550,12 @@ func UpdatePoolBinding(item *PoolBinding) error {
 	if item == nil || item.Id <= 0 {
 		return errors.New("invalid pool binding")
 	}
+	var existing PoolBinding
+	if err := DB.First(&existing, item.Id).Error; err != nil {
+		return err
+	}
+	oldPoolId := existing.PoolId
+
 	duplicateCount := int64(0)
 	if err := DB.Model(&PoolBinding{}).
 		Where("binding_type = ? AND binding_value = ? AND pool_id = ? AND id <> ?",
@@ -560,14 +566,34 @@ func UpdatePoolBinding(item *PoolBinding) error {
 	if duplicateCount > 0 {
 		return errors.New("duplicate pool binding: binding_type + binding_value + pool_id already exists")
 	}
-	return DB.Model(&PoolBinding{}).Where("id = ?", item.Id).Updates(map[string]interface{}{
+	if err := DB.Model(&PoolBinding{}).Where("id = ?", item.Id).Updates(map[string]interface{}{
 		"binding_type":  item.BindingType,
 		"binding_value": item.BindingValue,
 		"pool_id":       item.PoolId,
 		"priority":      item.Priority,
 		"enabled":       item.Enabled,
 		"updated_at":    common.GetTimestamp(),
-	}).Error
+	}).Error; err != nil {
+		return err
+	}
+
+	bindingType := strings.TrimSpace(item.BindingType)
+	if bindingType == "" {
+		bindingType = strings.TrimSpace(existing.BindingType)
+	}
+	if bindingType == PoolBindingTypeToken && oldPoolId > 0 && oldPoolId != item.PoolId {
+		tokenId, _ := strconv.Atoi(strings.TrimSpace(item.BindingValue))
+		if tokenId <= 0 {
+			tokenId, _ = strconv.Atoi(strings.TrimSpace(existing.BindingValue))
+		}
+		if tokenId > 0 {
+			maxWindow := maxTokenScopeRequestWindowSeconds(item.PoolId)
+			if mergeErr := MergeTokenRollingRequestEvents(oldPoolId, tokenId, maxWindow); mergeErr != nil {
+				common.SysLog("failed to merge token rolling request events: " + mergeErr.Error())
+			}
+		}
+	}
+	return nil
 }
 
 func DeletePoolBinding(id int) error {

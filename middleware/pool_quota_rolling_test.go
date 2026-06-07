@@ -137,6 +137,19 @@ func TestLoadPoolQuotaScopePoliciesAndScopeKey_TokenIsolationByTokenId(t *testin
 	assert.NotEqual(t, scopeKeyA, scopeKeyB)
 }
 
+func TestPoolRollingRequestRedisKey_TokenScopeUsesTokenKey(t *testing.T) {
+	t.Parallel()
+	key := model.PoolRollingRequestRedisKey(99, "token:12")
+	assert.Equal(t, model.TokenRollingRequestRedisKey(12), key)
+	assert.NotContains(t, key, "pool:rq:events:99")
+}
+
+func TestPoolRollingRequestRedisKey_UserScopeStaysPoolScoped(t *testing.T) {
+	t.Parallel()
+	key := model.PoolRollingRequestRedisKey(99, "user:12")
+	assert.Equal(t, "pool:rq:events:99:user:12", key)
+}
+
 func TestLoadPoolQuotaScopePoliciesAndScopeKey_LoaderError(t *testing.T) {
 	t.Parallel()
 	ctx := buildPoolQuotaTestCtx(1, 0, "")

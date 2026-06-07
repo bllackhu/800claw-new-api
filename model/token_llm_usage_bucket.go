@@ -112,6 +112,22 @@ func SumTokenLLMUsageBucketsByTokenSince(tokenId int, sinceUnix int64) (promptSu
 	return row.PromptSum, row.CompletionSum, nil
 }
 
+// SumTokenLLMUsageBucketRequestCountByTokenSince sums request_count from buckets with bucket_start >= sinceUnix.
+func SumTokenLLMUsageBucketRequestCountByTokenSince(tokenId int, sinceUnix int64) (int64, error) {
+	if DB == nil || tokenId <= 0 {
+		return 0, nil
+	}
+	var total int64
+	q := DB.Model(&TokenLLMUsageBucket{}).
+		Select("COALESCE(SUM(request_count), 0)").
+		Where("token_id = ?", tokenId)
+	if sinceUnix > 0 {
+		q = q.Where("bucket_start >= ?", sinceUnix)
+	}
+	err := q.Scan(&total).Error
+	return total, err
+}
+
 // DeleteTokenLLMUsageBucketsBefore deletes bucket rows with bucket_start < beforeUnix in batches of limit.
 func DeleteTokenLLMUsageBucketsBefore(ctx context.Context, beforeUnix int64, limit int) (int64, error) {
 	if DB == nil || beforeUnix <= 0 || limit <= 0 {

@@ -189,3 +189,26 @@ func TestUpdatePoolBinding_RejectsDuplicateWithinSamePool(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestUpdatePoolBinding_TokenPoolChangeUpdatesBinding(t *testing.T) {
+	ensurePoolBindingResolutionTables(t)
+	truncatePoolBindingResolutionTables(t)
+
+	poolA := seedPoolForResolution(t, "pool_move_a")
+	poolB := seedPoolForResolution(t, "pool_move_b")
+	binding := &PoolBinding{
+		BindingType:  PoolBindingTypeToken,
+		BindingValue: "4001",
+		PoolId:       poolA.Id,
+		Priority:     0,
+		Enabled:      true,
+	}
+	require.NoError(t, DB.Create(binding).Error)
+
+	binding.PoolId = poolB.Id
+	require.NoError(t, UpdatePoolBinding(binding))
+
+	var updated PoolBinding
+	require.NoError(t, DB.First(&updated, binding.Id).Error)
+	require.Equal(t, poolB.Id, updated.PoolId)
+}
+

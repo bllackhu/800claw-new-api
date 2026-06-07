@@ -1,9 +1,7 @@
 package controller
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -14,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const tokenPoolUsageDataSource = "rolling_redis"
+const tokenPoolUsageDataSource = "token_llm_rollups"
 
 const (
 	poolDisplayNameFallback = "Pool"
@@ -22,7 +20,6 @@ const (
 
 const (
 	tokenPoolUsageReasonNoResolvedPool     = "no_resolved_pool"
-	tokenPoolUsageReasonRedisRequired      = "redis_required"
 	tokenPoolUsageReasonWindowNotRetained  = "window_not_retained"
 	tokenPoolUsageReasonTokenScopeDisabled = "token_scope_not_enabled"
 	tokenPoolUsageReasonUserScopeOnly      = "user_scope_only"
@@ -205,10 +202,9 @@ func buildTokenPoolLLMTokenUsage(token *model.Token, windows []string, windowSec
 }
 
 type tokenPoolUsageBuilderDeps struct {
-	resolvePool   func(token *model.Token) (*model.Pool, error)
-	loadPolicies  func(poolId int, scopeType string) ([]*model.PoolQuotaPolicy, error)
-	isRedisReady  func() bool
-	countByWindow func(redisKey string, windowSeconds int) (int64, error)
+	resolvePool          func(token *model.Token) (*model.Pool, error)
+	loadPolicies         func(poolId int, scopeType string) ([]*model.PoolQuotaPolicy, error)
+	countRequestsByToken func(tokenId int, windowSeconds int) (int64, error)
 }
 
 func normalizeTokenPoolUsageWindows(input []string) ([]string, map[string]int, error) {
@@ -270,11 +266,6 @@ func buildUnavailableTokenPoolUsage(item *TokenPoolUsageItem, windows []string, 
 	return item
 }
 
-func countRollingWindowByRedisKey(ctx context.Context, redisKey string, windowSeconds int) (int64, error) {
-	nowMs := time.Now().UnixMilli()
-	startMs := nowMs - int64(windowSeconds)*1000
-	return common.RDB.ZCount(ctx, redisKey, fmt.Sprintf("(%d", startMs), "+inf").Result()
-}
 
 func buildTokenPoolUsageItem(token *model.Token, windows []string, windowSeconds map[string]int) (*TokenPoolUsageItem, error) {
 	deps := tokenPoolUsageBuilderDeps{
@@ -284,11 +275,9 @@ func buildTokenPoolUsageItem(token *model.Token, windows []string, windowSeconds
 		loadPolicies: func(poolId int, scopeType string) ([]*model.PoolQuotaPolicy, error) {
 			return model.GetPoolQuotaPolicies(poolId, model.PoolQuotaMetricRequestCount, scopeType)
 		},
-		isRedisReady: func() bool {
-			return common.RedisEnabled && common.RDB != nil
-		},
-		countByWindow: func(redisKey string, windowSeconds int) (int64, error) {
-			return countRollingWindowByRedisKey(context.Background(), redisKey, windowSeconds)
+		countRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+			since := time.Now().Unix() - int64(windowSeconds)
+			return model.SumTokenLLMUsageBucketRequestCountByTokenSince(tokenId, since)
 		},
 	}
 	return buildTokenPoolUsageItemWithDeps(token, windows, windowSeconds, deps)
@@ -346,11 +335,7 @@ func buildTokenPoolUsageItemWithDeps(token *model.Token, windows []string, windo
 	item.ScopeType = model.PoolQuotaScopeToken
 	item.TokenScopeEnabled = true
 	item.RetentionWindowSeconds = maxWindowSeconds
-	if !deps.isRedisReady() {
-		return buildUnavailableTokenPoolUsage(item, windows, windowSeconds, tokenPoolUsageReasonRedisRequired), nil
-	}
 
-	redisKey := fmt.Sprintf("pool:rq:events:%d:token:%d", pool.Id, token.Id)
 	for _, window := range windows {
 		result := &TokenPoolUsageWindow{
 			Window:        window,
@@ -366,7 +351,7 @@ func buildTokenPoolUsageItemWithDeps(token *model.Token, windows []string, windo
 			item.Usage[window] = result
 			continue
 		}
-		count, countErr := deps.countByWindow(redisKey, result.WindowSeconds)
+		count, countErr := deps.countRequestsByToken(token.Id, result.WindowSeconds)
 		if countErr != nil {
 			return nil, countErr
 		}

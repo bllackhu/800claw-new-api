@@ -110,7 +110,7 @@ func PoolRollingQuota() func(c *gin.Context) {
 			requestId = fmt.Sprintf("%d-%s", time.Now().UnixNano(), common.GetRandomString(8))
 		}
 
-		redisKey := fmt.Sprintf("pool:rq:events:%d:%s", poolId, scopeKey)
+		redisKey := model.PoolRollingRequestRedisKey(poolId, scopeKey)
 		nowMs := time.Now().UnixMilli()
 		ctx := context.Background()
 
