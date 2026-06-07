@@ -27,6 +27,10 @@ import {
   getCurrencyConfig,
   getModelCategories,
   selectFilter,
+  formatPoolUsageCount,
+  formatPoolTokenLine,
+  hasPoolLlmTokenUsage,
+  resolvePoolUsageLocale,
 } from '../../../../helpers';
 import {
   quotaToDisplayAmount,
@@ -76,15 +80,8 @@ const getPoolUsageReasonText = (reason, t) => {
   }
 };
 
-const renderPoolUsageCount = (metric) => {
-  if (metric?.available && metric?.count != null) {
-    return String(metric.count);
-  }
-  return '--';
-};
-
 const EditTokenModal = (props) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [statusState, statusDispatch] = useContext(StatusContext);
   const [loading, setLoading] = useState(false);
   const isMobile = useIsMobile();
@@ -102,6 +99,17 @@ const EditTokenModal = (props) => {
   const poolUsageWarningMetric = poolUsageMetrics.find(
     ([, metric]) => metric && !metric.available,
   )?.[1];
+  const poolUsageLocale = resolvePoolUsageLocale(i18n.language);
+  const poolUsageUnavailable = '--';
+  const llmTokenUsage = poolUsage?.llm_token_usage;
+  const llmUsageByWindow = llmTokenUsage?.by_window || {};
+  const showLlmTokenUsageCard = hasPoolLlmTokenUsage(llmTokenUsage);
+  const llmLifetime = llmTokenUsage?.lifetime;
+  const showLlmLifetimeRow =
+    llmLifetime &&
+    (Number(llmLifetime.prompt_tokens) > 0 ||
+      Number(llmLifetime.completion_tokens) > 0 ||
+      Number(llmLifetime.total_tokens) > 0);
 
   const getInitValues = () => ({
     name: '',
@@ -392,7 +400,7 @@ const EditTokenModal = (props) => {
           onSubmit={submit}
         >
           {({ values }) => (
-            <div className='p-2'>
+            <div className='p-2 flex flex-col gap-4'>
               {/* 基本信息 */}
               <Card className='!rounded-2xl shadow-sm border-0'>
                 <div className='flex items-center mb-2'>
@@ -401,7 +409,7 @@ const EditTokenModal = (props) => {
                   </Avatar>
                   <div>
                     <Text className='text-lg font-medium'>{t('基本信息')}</Text>
-                    <div className='text-xs text-gray-600'>
+                    <div className='text-xs text-semi-color-text-1'>
                       {t('设置令牌的基本信息')}
                     </div>
                   </div>
@@ -465,6 +473,207 @@ const EditTokenModal = (props) => {
                       label='Require pool subscription (WeChat)'
                       size='default'
                       extraText='When enabled, if this token resolves to a pool with a monthly price, relay requests require an active native WeChat pool subscription for that token and pool.'
+                    />
+                  </Col>
+
+                  {!isEdit && (
+                    <Col span={24}>
+                      <Form.InputNumber
+                        field='tokenCount'
+                        label={t('新建数量')}
+                        min={1}
+                        extraText={t('批量创建时会在名称后自动添加随机后缀')}
+                        rules={[
+                          { required: true, message: t('请输入新建数量') },
+                        ]}
+                        style={{ width: '100%' }}
+                      />
+                    </Col>
+                  )}
+                  
+                </Row>
+              </Card>
+
+              {isEdit && (
+                <Card className='!rounded-2xl shadow-sm border-0'>
+                  <div className='flex items-center mb-2'>
+                    <Avatar size='small' color='cyan' className='mr-2 shadow-md'>
+                      <IconLink size={16} />
+                    </Avatar>
+                    <div>
+                      <Text className='text-lg font-medium'>{t('Token词元统计')}</Text>
+                      <div className='text-xs text-semi-color-text-1'>
+                        {t('查看当前Token词元的实时滚动请求计数')}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className='flex flex-wrap items-center gap-2 mb-3'>
+                    <Tag color='blue' shape='circle'>
+                      {poolUsage?.pool_name || t('未解析到Token词元')}
+                    </Tag>
+                    {poolUsage?.scope_type === 'token' && poolUsage?.token_scope_enabled && (
+                      <Tag color='green' shape='circle'>
+                        {t('令牌维度')}
+                      </Tag>
+                    )}
+                    {poolUsage?.scope_type === 'user' && (
+                      <Tag color='yellow' shape='circle'>
+                        {t('仅用户维度')}
+                      </Tag>
+                    )}
+                  </div>
+
+                  {props.poolUsageLoading && !poolUsage ? (
+                    <Text type='secondary'>{t('加载Token词元使用数据中...')}</Text>
+                  ) : (
+                    <Row gutter={[12, 12]}>
+                      {poolUsageMetrics.map(([label, metric]) => (
+                        <Col key={label} span={8}>
+                          <Card
+                            bodyStyle={{ padding: 12 }}
+                            className='border border-semi-color-border !rounded-xl'
+                          >
+                            <div className='text-xs text-semi-color-text-2'>{label}</div>
+                            <div className='text-lg font-semibold mt-1'>
+                              {formatPoolUsageCount(
+                                metric,
+                                poolUsageLocale,
+                                poolUsageUnavailable,
+                              )}
+                            </div>
+                          </Card>
+                        </Col>
+                      ))}
+                    </Row>
+                  )}
+
+                  <div className='mt-4 flex flex-col gap-2'>
+                    <Text type='tertiary' className='text-xs'>
+                      {t('实时滚动请求计数')}
+                    </Text>
+                    {poolUsage?.retention_window_seconds > 0 && (
+                      <Text type='tertiary' className='text-xs'>
+                        {t('最长保留窗口')}: {poolUsage.retention_window_seconds}s
+                      </Text>
+                    )}
+                    {poolUsageWarningMetric?.reason && (
+                      <Tag color='yellow' shape='circle'>
+                        {getPoolUsageReasonText(poolUsageWarningMetric.reason, t)}
+                      </Tag>
+                    )}
+                    {!poolUsage && props.poolUsageError && (
+                      <Tag color='red' shape='circle'>
+                        {props.poolUsageError}
+                      </Tag>
+                    )}
+                  </div>
+                </Card>
+              )}
+
+              {isEdit && showLlmTokenUsageCard && (
+                <Card className='!rounded-2xl shadow-sm border-0'>
+                  <div className='flex items-center mb-2'>
+                    <Avatar size='small' color='grey' className='mr-2 shadow-md'>
+                      <IconLink size={16} />
+                    </Avatar>
+                    <div>
+                      <Text className='text-base font-medium text-semi-color-text-0'>
+                        {t('Token 用量')}
+                      </Text>
+                      <div className='text-xs text-semi-color-text-2'>
+                        {t('按滚动窗口统计的 LLM Token 用量')}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className='space-y-3 text-xs text-semi-color-text-1'>
+                    {poolUsageMetrics.map(([label]) => (
+                      <div
+                        key={label}
+                        className='flex items-start justify-between gap-4 py-0 last:border-b-0'
+                      >
+                        <span className='font-medium text-semi-color-text-2 shrink-0 w-8'>
+                          {label}
+                        </span>
+                        <span className='text-right leading-relaxed text-semi-color-text-1'>
+                          {formatPoolTokenLine(
+                            llmUsageByWindow[label],
+                            t,
+                            poolUsageLocale,
+                            poolUsageUnavailable,
+                            poolUsageUnavailable,
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                    {showLlmLifetimeRow ? (
+                      <div className='flex items-start justify-between gap-4 pt-3 mt-2 border-t border-semi-color-border'>
+                        <span className='font-medium text-semi-color-text-2 shrink-0'>
+                          {t('累计')}
+                        </span>
+                        <span className='text-right leading-relaxed text-semi-color-text-1'>
+                          {formatPoolTokenLine(
+                            llmLifetime,
+                            t,
+                            poolUsageLocale,
+                            poolUsageUnavailable,
+                            poolUsageUnavailable,
+                          )}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                </Card>
+              )}
+
+              {/* 访问限制 */}
+              <Card className='!rounded-2xl shadow-sm border-0'>
+                <div className='flex items-center mb-2'>
+                  <Avatar
+                    size='small'
+                    color='purple'
+                    className='mr-2 shadow-md'
+                  >
+                    <IconLink size={16} />
+                  </Avatar>
+                  <div>
+                    <Text className='text-lg font-medium'>{t('访问限制')}</Text>
+                    <div className='text-xs text-semi-color-text-1'>
+                      {t('设置令牌的访问限制')}
+                    </div>
+                  </div>
+                </div>
+                <Row gutter={12}>
+                  <Col span={24}>
+                    <Form.Select
+                      field='model_limits'
+                      label={t('模型限制列表')}
+                      placeholder={t(
+                        '请选择该令牌支持的模型，留空支持所有模型',
+                      )}
+                      multiple
+                      optionList={models}
+                      extraText={t('非必要，不建议启用模型限制')}
+                      filter={selectFilter}
+                      autoClearSearchValue={false}
+                      searchPosition='dropdown'
+                      showClear
+                      style={{ width: '100%' }}
+                    />
+                  </Col>
+                  <Col span={24}>
+                    <Form.TextArea
+                      field='allow_ips'
+                      label={t('IP白名单（支持CIDR表达式）')}
+                      placeholder={t('允许的IP，一行一个，不填写则不限制')}
+                      autosize
+                      rows={1}
+                      extraText={t(
+                        '请勿过度信任此功能，IP可能被伪造，请配合nginx和cdn等网关使用',
+                      )}
+                      showClear
+                      style={{ width: '100%' }}
                     />
                   </Col>
                   <Col xs={24} sm={24} md={24} lg={10} xl={10}>
@@ -531,20 +740,8 @@ const EditTokenModal = (props) => {
                       </Space>
                     </Form.Slot>
                   </Col>
-                  {!isEdit && (
-                    <Col span={24}>
-                      <Form.InputNumber
-                        field='tokenCount'
-                        label={t('新建数量')}
-                        min={1}
-                        extraText={t('批量创建时会在名称后自动添加随机后缀')}
-                        rules={[
-                          { required: true, message: t('请输入新建数量') },
-                        ]}
-                        style={{ width: '100%' }}
-                      />
-                    </Col>
-                  )}
+                  
+
                 </Row>
               </Card>
 
@@ -556,7 +753,7 @@ const EditTokenModal = (props) => {
                   </Avatar>
                   <div>
                     <Text className='text-lg font-medium'>{t('额度设置')}</Text>
-                    <div className='text-xs text-gray-600'>
+                    <div className='text-xs text-semi-color-text-1'>
                       {t('设置令牌可用额度和数量')}
                     </div>
                   </div>
@@ -633,132 +830,7 @@ const EditTokenModal = (props) => {
                 </Row>
               </Card>
 
-              {isEdit && (
-                <Card className='!rounded-2xl shadow-sm border-0 mt-2'>
-                  <div className='flex items-center mb-2'>
-                    <Avatar size='small' color='cyan' className='mr-2 shadow-md'>
-                      <IconLink size={16} />
-                    </Avatar>
-                    <div>
-                      <Text className='text-lg font-medium'>{t('池使用')}</Text>
-                      <div className='text-xs text-gray-600'>
-                        {t('查看当前令牌在池中的实时滚动请求计数')}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className='flex flex-wrap items-center gap-2 mb-3'>
-                    <Tag color='blue' shape='circle'>
-                      {poolUsage?.pool_name || t('未解析到池')}
-                    </Tag>
-                    {poolUsage?.scope_type === 'token' && poolUsage?.token_scope_enabled && (
-                      <Tag color='green' shape='circle'>
-                        {t('令牌维度')}
-                      </Tag>
-                    )}
-                    {poolUsage?.scope_type === 'user' && (
-                      <Tag color='yellow' shape='circle'>
-                        {t('仅用户维度')}
-                      </Tag>
-                    )}
-                    {poolUsage?.pool_id > 0 && (
-                      <Tag color='white' shape='circle'>
-                        pool_id: {poolUsage.pool_id}
-                      </Tag>
-                    )}
-                  </div>
-
-                  {props.poolUsageLoading && !poolUsage ? (
-                    <Text type='secondary'>{t('加载池使用数据中...')}</Text>
-                  ) : (
-                    <Row gutter={12}>
-                      {poolUsageMetrics.map(([label, metric]) => (
-                        <Col key={label} span={8}>
-                          <Card bodyStyle={{ padding: 12 }} className='border border-slate-100'>
-                            <div className='text-xs text-gray-500'>{label}</div>
-                            <div className='text-lg font-semibold mt-1'>
-                              {renderPoolUsageCount(metric)}
-                            </div>
-                          </Card>
-                        </Col>
-                      ))}
-                    </Row>
-                  )}
-
-                  <div className='mt-3 flex flex-col gap-2'>
-                    <Text type='tertiary' className='text-xs'>
-                      {t('实时滚动请求计数')}
-                    </Text>
-                    {poolUsage?.retention_window_seconds > 0 && (
-                      <Text type='tertiary' className='text-xs'>
-                        {t('最长保留窗口')}: {poolUsage.retention_window_seconds}s
-                      </Text>
-                    )}
-                    {poolUsageWarningMetric?.reason && (
-                      <Tag color='yellow' shape='circle'>
-                        {getPoolUsageReasonText(poolUsageWarningMetric.reason, t)}
-                      </Tag>
-                    )}
-                    {!poolUsage && props.poolUsageError && (
-                      <Tag color='red' shape='circle'>
-                        {props.poolUsageError}
-                      </Tag>
-                    )}
-                  </div>
-                </Card>
-              )}
-
-              {/* 访问限制 */}
-              <Card className='!rounded-2xl shadow-sm border-0'>
-                <div className='flex items-center mb-2'>
-                  <Avatar
-                    size='small'
-                    color='purple'
-                    className='mr-2 shadow-md'
-                  >
-                    <IconLink size={16} />
-                  </Avatar>
-                  <div>
-                    <Text className='text-lg font-medium'>{t('访问限制')}</Text>
-                    <div className='text-xs text-gray-600'>
-                      {t('设置令牌的访问限制')}
-                    </div>
-                  </div>
-                </div>
-                <Row gutter={12}>
-                  <Col span={24}>
-                    <Form.Select
-                      field='model_limits'
-                      label={t('模型限制列表')}
-                      placeholder={t(
-                        '请选择该令牌支持的模型，留空支持所有模型',
-                      )}
-                      multiple
-                      optionList={models}
-                      extraText={t('非必要，不建议启用模型限制')}
-                      filter={selectFilter}
-                      autoClearSearchValue={false}
-                      searchPosition='dropdown'
-                      showClear
-                      style={{ width: '100%' }}
-                    />
-                  </Col>
-                  <Col span={24}>
-                    <Form.TextArea
-                      field='allow_ips'
-                      label={t('IP白名单（支持CIDR表达式）')}
-                      placeholder={t('允许的IP，一行一个，不填写则不限制')}
-                      autosize
-                      rows={1}
-                      extraText={t(
-                        '请勿过度信任此功能，IP可能被伪造，请配合nginx和cdn等网关使用',
-                      )}
-                      showClear
-                      style={{ width: '100%' }}
-                    />
-                  </Col>
-                </Row>
-              </Card>
+              
             </div>
           )}
         </Form>

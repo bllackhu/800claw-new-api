@@ -254,6 +254,9 @@ func migrateDB() error {
 	if err := migrateTokenModelLimitsToText(); err != nil {
 		return err
 	}
+	if err := migratePoolSQLiteDecimalMonthlyPrice(); err != nil {
+		return err
+	}
 
 	err := DB.AutoMigrate(
 		&Channel{},
@@ -300,6 +303,7 @@ func migrateDB() error {
 			return err
 		}
 	}
+	migratePoolDecimalMonthlyPrice()
 	return nil
 }
 
@@ -375,6 +379,7 @@ func migrateDBFast() error {
 			return err
 		}
 	}
+	migratePoolDecimalMonthlyPrice()
 	common.SysLog("database migrated")
 	return nil
 }
@@ -461,6 +466,110 @@ PRIMARY KEY (` + "`id`" + `)
 		}
 	}
 	return nil
+}
+
+// migratePoolSQLiteDecimalMonthlyPrice rebuilds pools when monthly_price_cny uses decimal(10,2).
+// glebarez/sqlite DDL parser treats nested parentheses in decimal() as unbalanced brackets.
+func migratePoolSQLiteDecimalMonthlyPrice() error {
+	if !common.UsingSQLite {
+		return nil
+	}
+	const tableName = "pools"
+	if !DB.Migrator().HasTable(tableName) {
+		return nil
+	}
+	var createSQL string
+	if err := DB.Raw("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", tableName).Scan(&createSQL).Error; err != nil {
+		return err
+	}
+	if createSQL == "" || !strings.Contains(strings.ToLower(createSQL), "decimal") {
+		return nil
+	}
+
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("CREATE TABLE `pools__new` (" +
+			"`id` integer," +
+			"`name` varchar(64) NOT NULL," +
+			"`description` varchar(255) DEFAULT ''," +
+			"`status` integer DEFAULT 1," +
+			"`monthly_price_cny` real DEFAULT 0," +
+			"`billing_currency` varchar(8) DEFAULT 'CNY'," +
+			"`billing_period_seconds` integer DEFAULT 2592000," +
+			"`created_at` integer," +
+			"`updated_at` integer," +
+			"PRIMARY KEY (`id`)" +
+			")").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("INSERT INTO `pools__new` (" +
+			"`id`, `name`, `description`, `status`, `monthly_price_cny`, `billing_currency`, `billing_period_seconds`, `created_at`, `updated_at`" +
+			") SELECT " +
+			"`id`, `name`, `description`, `status`, `monthly_price_cny`, `billing_currency`, `billing_period_seconds`, `created_at`, `updated_at` " +
+			"FROM `pools`").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DROP TABLE `pools`").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("ALTER TABLE `pools__new` RENAME TO `pools`").Error; err != nil {
+			return err
+		}
+		return tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS `idx_pools_name` ON `pools`(`name`)").Error
+	})
+}
+
+// migratePoolDecimalMonthlyPrice keeps monthly_price_cny as decimal(10,2) on MySQL/PostgreSQL.
+// SQLite uses real (see migratePoolSQLiteDecimalMonthlyPrice); Pool omits type:decimal so glebarez AutoMigrate stays safe.
+func migratePoolDecimalMonthlyPrice() {
+	if common.UsingSQLite {
+		return
+	}
+
+	const tableName = "pools"
+	const columnName = "monthly_price_cny"
+
+	if !DB.Migrator().HasTable(tableName) {
+		return
+	}
+	if !DB.Migrator().HasColumn(&Pool{}, columnName) {
+		return
+	}
+
+	var alterSQL string
+	if common.UsingPostgreSQL {
+		var dataType string
+		if err := DB.Raw(`SELECT data_type FROM information_schema.columns
+			WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`,
+			tableName, columnName).Scan(&dataType).Error; err != nil {
+			common.SysLog(fmt.Sprintf("Warning: failed to query metadata for %s.%s: %v", tableName, columnName, err))
+		} else if dataType == "numeric" {
+			return
+		}
+		alterSQL = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN %s TYPE decimal(10,2) USING %s::decimal(10,2)`,
+			tableName, columnName, columnName)
+	} else if common.UsingMySQL {
+		var columnType string
+		if err := DB.Raw(`SELECT COLUMN_TYPE FROM information_schema.columns
+				WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?`,
+			tableName, columnName).Scan(&columnType).Error; err != nil {
+			common.SysLog(fmt.Sprintf("Warning: failed to query metadata for %s.%s: %v", tableName, columnName, err))
+		} else if strings.HasPrefix(strings.ToLower(columnType), "decimal") {
+			return
+		}
+		alterSQL = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s decimal(10,2) DEFAULT 0",
+			tableName, columnName)
+	} else {
+		return
+	}
+
+	if alterSQL == "" {
+		return
+	}
+	if err := DB.Exec(alterSQL).Error; err != nil {
+		common.SysLog(fmt.Sprintf("Warning: failed to migrate %s.%s to decimal: %v", tableName, columnName, err))
+	} else {
+		common.SysLog(fmt.Sprintf("Successfully migrated %s.%s to decimal(10,2)", tableName, columnName))
+	}
 }
 
 // migrateTokenModelLimitsToText migrates model_limits column from varchar(1024) to text

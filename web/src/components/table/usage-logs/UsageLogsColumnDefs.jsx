@@ -614,31 +614,31 @@ export const getLogsColumns = ({
         ) : null;
       },
     },
-    {
-      key: COLUMN_KEYS.USERNAME,
-      title: t('用户'),
-      dataIndex: 'username',
-      render: (text, record, index) => {
-        return isAdminUser ? (
-          <div>
-            <Avatar
-              size='extra-small'
-              color={stringToColor(text)}
-              style={{ marginRight: 4 }}
-              onClick={(event) => {
-                event.stopPropagation();
-                showUserInfoFunc(record.user_id);
-              }}
-            >
-              {typeof text === 'string' && text.slice(0, 1)}
-            </Avatar>
-            {text}
-          </div>
-        ) : (
-          <></>
-        );
-      },
-    },
+    // {
+    //   key: COLUMN_KEYS.USERNAME,
+    //   title: t('用户'),
+    //   dataIndex: 'username',
+    //   render: (text, record, index) => {
+    //     return isAdminUser ? (
+    //       <div>
+    //         <Avatar
+    //           size='extra-small'
+    //           color={stringToColor(text)}
+    //           style={{ marginRight: 4 }}
+    //           onClick={(event) => {
+    //             event.stopPropagation();
+    //             showUserInfoFunc(record.user_id);
+    //           }}
+    //         >
+    //           {typeof text === 'string' && text.slice(0, 1)}
+    //         </Avatar>
+    //         {text}
+    //       </div>
+    //     ) : (
+    //       <></>
+    //     );
+    //   },
+    // },
     {
       key: COLUMN_KEYS.TOKEN,
       title: t('令牌'),
@@ -665,51 +665,43 @@ export const getLogsColumns = ({
         );
       },
     },
-    {
-      key: COLUMN_KEYS.GROUP,
-      title: t('分组'),
-      dataIndex: 'group',
-      render: (text, record, index) => {
-        if (
-          record.type === 0 ||
-          record.type === 2 ||
-          record.type === 5 ||
-          record.type === 6
-        ) {
-          if (record.group) {
-            return <>{renderGroup(record.group)}</>;
-          } else {
-            let other = null;
-            try {
-              other = JSON.parse(record.other);
-            } catch (e) {
-              console.error(
-                `Failed to parse record.other: "${record.other}".`,
-                e,
-              );
-            }
-            if (other === null) {
-              return <></>;
-            }
-            if (other.group !== undefined) {
-              return <>{renderGroup(other.group)}</>;
-            } else {
-              return <></>;
-            }
-          }
-        } else {
-          return <></>;
-        }
-      },
-    },
-    {
-      key: COLUMN_KEYS.TYPE,
-      title: t('类型'),
-      dataIndex: 'type',
-      render: (text, record, index) => {
-        return <>{renderType(text, t)}</>;
-      },
-    },
+    // {
+    //   key: COLUMN_KEYS.GROUP,
+    //   title: t('分组'),
+    //   dataIndex: 'group',
+    //   render: (text, record, index) => {
+    //     if (
+    //       record.type === 0 ||
+    //       record.type === 2 ||
+    //       record.type === 5 ||
+    //       record.type === 6
+    //     ) {
+    //       if (record.group) {
+    //         return <>{renderGroup(record.group)}</>;
+    //       } else {
+    //         let other = null;
+    //         try {
+    //           other = JSON.parse(record.other);
+    //         } catch (e) {
+    //           console.error(
+    //             `Failed to parse record.other: "${record.other}".`,
+    //             e,
+    //           );
+    //         }
+    //         if (other === null) {
+    //           return <></>;
+    //         }
+    //         if (other.group !== undefined) {
+    //           return <>{renderGroup(other.group)}</>;
+    //         } else {
+    //           return <></>;
+    //         }
+    //       }
+    //     } else {
+    //       return <></>;
+    //     }
+    //   },
+    // },
     {
       key: COLUMN_KEYS.MODEL,
       title: t('模型'),
@@ -756,6 +748,8 @@ export const getLogsColumns = ({
         }
       },
     },
+    
+    
     {
       key: COLUMN_KEYS.PROMPT,
       title: (
@@ -833,33 +827,41 @@ export const getLogsColumns = ({
       },
     },
     {
-      key: COLUMN_KEYS.COST,
-      title: t('花费'),
-      dataIndex: 'quota',
+      key: COLUMN_KEYS.TYPE,
+      title: t('类型'),
+      dataIndex: 'type',
       render: (text, record, index) => {
-        if (
-          !(
-            record.type === 0 ||
-            record.type === 2 ||
-            record.type === 5 ||
-            record.type === 6
-          )
-        ) {
-          return <></>;
-        }
-        const other = getLogOther(record.other);
-        const isSubscription = other?.billing_source === 'subscription';
-        if (isSubscription) {
-          // Subscription billed: show only tag (no $0), but keep tooltip for equivalent cost.
-          return (
-            <Tooltip content={`${t('由订阅抵扣')}：${renderQuota(text, 6)}`}>
-              <span>{renderBillingTag(record, t)}</span>
-            </Tooltip>
-          );
-        }
-        return <>{renderQuota(text, 6)}</>;
+        return <>{renderType(text, t)}</>;
       },
     },
+    // {
+    //   key: COLUMN_KEYS.COST,
+    //   title: t('花费'),
+    //   dataIndex: 'quota',
+    //   render: (text, record, index) => {
+    //     if (
+    //       !(
+    //         record.type === 0 ||
+    //         record.type === 2 ||
+    //         record.type === 5 ||
+    //         record.type === 6
+    //       )
+    //     ) {
+    //       return <></>;
+    //     }
+    //     const other = getLogOther(record.other);
+    //     const isSubscription = other?.billing_source === 'subscription';
+    //     if (isSubscription) {
+    //       // Subscription billed: show only tag (no $0), but keep tooltip for equivalent cost.
+    //       return (
+    //         <Tooltip content={`${t('由订阅抵扣')}：${renderQuota(text, 6)}`}>
+    //           <span>{renderBillingTag(record, t)}</span>
+    //         </Tooltip>
+    //       );
+    //     }
+    //     return <>{renderQuota(text, 6)}</>;
+    //   },
+    // },
     {
       key: COLUMN_KEYS.IP,
       title: (

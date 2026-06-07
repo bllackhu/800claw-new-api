@@ -39,6 +39,7 @@ import {
   renderQuota,
   getModelCategories,
   showError,
+  getPoolUsageReasonText,
 } from '../../../helpers';
 import {
   IconTreeTriangleDown,
@@ -348,23 +349,6 @@ const renderQuotaUsage = (text, record, t) => {
   );
 };
 
-const getPoolUsageReasonLabel = (reason, t) => {
-  switch (reason) {
-    case 'no_resolved_pool':
-      return t('未解析到池');
-    case 'redis_required':
-      return t('需要 Redis 才能统计');
-    case 'window_not_retained':
-      return t('当前池未保留该时间窗口');
-    case 'token_scope_not_enabled':
-      return t('当前池未启用令牌维度统计');
-    case 'user_scope_only':
-      return t('当前池仅按用户维度统计');
-    default:
-      return t('暂无可用数据');
-  }
-};
-
 const renderPoolUsageMetric = (label, metric, t) => {
   const countText =
     metric && metric.available && metric.count != null ? String(metric.count) : '--';
@@ -447,7 +431,7 @@ const renderPoolUsage = (
       {warningMetric?.reason && (
         <div className='mt-2'>
           <Tag size='small' color='yellow' shape='circle'>
-            {getPoolUsageReasonLabel(warningMetric.reason, t)}
+            {getPoolUsageReasonText(warningMetric.reason, t)}
           </Tag>
         </div>
       )}
@@ -468,7 +452,7 @@ const renderPoolUsage = (
         {warningMetric?.reason && (
           <div className='mt-1'>
             <Text size='small' style={{ color: 'var(--semi-color-warning)' }}>
-              {getPoolUsageReasonLabel(warningMetric.reason, t)}
+              {getPoolUsageReasonText(warningMetric.reason, t)}
             </Text>
           </div>
         )}
@@ -662,7 +646,7 @@ export const getTokensColumns = ({
       render: (text, record) => renderQuotaUsage(text, record, t),
     },
     {
-      title: t('池使用'),
+      title: t('Token词元使用'),
       key: 'pool_usage',
       render: (text, record) =>
         renderPoolUsage(

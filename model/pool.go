@@ -33,7 +33,7 @@ type Pool struct {
 	Name                 string  `json:"name" gorm:"type:varchar(64);uniqueIndex;not null"`
 	Description          string  `json:"description" gorm:"type:varchar(255);default:''"`
 	Status               int     `json:"status" gorm:"default:1;index"`
-	MonthlyPriceCny      float64 `json:"monthly_price_cny" gorm:"type:decimal(10,2);default:0"` // 0 = no native WeChat subscription gate
+	MonthlyPriceCny      float64 `json:"monthly_price_cny" gorm:"default:0"` // 0 = no native WeChat subscription gate; SQLite=real, MySQL/PG=decimal(10,2) via migratePoolDecimalMonthlyPrice
 	BillingCurrency      string  `json:"billing_currency" gorm:"size:8;default:CNY"`
 	BillingPeriodSeconds int64   `json:"billing_period_seconds" gorm:"default:2592000"` // default 30 days
 	CreatedAt            int64   `json:"created_at" gorm:"bigint;index"`

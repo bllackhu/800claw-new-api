@@ -134,6 +134,15 @@ func sanitizeLikePattern(input string) (string, error) {
 	return input, nil
 }
 
+// substringLikePattern auto-wraps with % for substring match when the user did not supply %.
+// Explicit patterns (e.g. "foo%", "%bar") are preserved.
+func substringLikePattern(input string) (string, error) {
+	if input != "" && !strings.Contains(input, "%") {
+		input = "%" + input + "%"
+	}
+	return sanitizeLikePattern(input)
+}
+
 const searchHardLimit = 100
 
 func SearchUserTokens(userId int, keyword string, token string, offset int, limit int) (tokens []*Token, total int64, err error) {
@@ -149,9 +158,9 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 		token = strings.TrimPrefix(token, "sk-")
 	}
 
-	// 超量用户（令牌数超过上限）只允许精确搜索，禁止模糊搜索
+	// 超量用户（令牌数超过上限）禁止模糊搜索
 	maxTokens := operation_setting.GetMaxUserTokens()
-	hasFuzzy := strings.Contains(keyword, "%") || strings.Contains(token, "%")
+	hasFuzzy := keyword != "" || token != ""
 	if hasFuzzy {
 		count, err := CountUserTokens(userId)
 		if err != nil {
@@ -159,7 +168,7 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 			return nil, 0, errors.New("获取令牌数量失败")
 		}
 		if int(count) > maxTokens {
-			return nil, 0, errors.New("令牌数量超过上限，仅允许精确搜索，请勿使用 % 通配符")
+			return nil, 0, errors.New("令牌数量超过上限，无法使用搜索功能")
 		}
 	}
 
@@ -167,14 +176,14 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 
 	// 非空才加 LIKE 条件，空则跳过（不过滤该字段）
 	if keyword != "" {
-		keywordPattern, err := sanitizeLikePattern(keyword)
+		keywordPattern, err := substringLikePattern(keyword)
 		if err != nil {
 			return nil, 0, err
 		}
 		baseQuery = baseQuery.Where("name LIKE ? ESCAPE '!'", keywordPattern)
 	}
 	if token != "" {
-		tokenPattern, err := sanitizeLikePattern(token)
+		tokenPattern, err := substringLikePattern(token)
 		if err != nil {
 			return nil, 0, err
 		}

@@ -54,6 +54,7 @@ type TokenPoolUsageItem struct {
 	RetentionWindowSeconds int                              `json:"retention_window_seconds,omitempty"`
 	TokenScopeEnabled      bool                             `json:"token_scope_enabled"`
 	Usage                  map[string]*TokenPoolUsageWindow `json:"usage"`
+	LlmTokenUsage          *TokenPoolLLMTokenUsage          `json:"llm_token_usage,omitempty"`
 }
 
 const tokenPoolLLMTokenDataSource = "token_llm_rollups"
@@ -310,7 +311,7 @@ func buildTokenPoolUsageItemWithDeps(token *model.Token, windows []string, windo
 		return buildUnavailableTokenPoolUsage(item, windows, windowSeconds, tokenPoolUsageReasonNoResolvedPool), nil
 	}
 	item.PoolId = pool.Id
-	item.PoolName = pool.Name
+	item.PoolName = poolDisplayName(pool)
 
 	tokenPolicies, err := deps.loadPolicies(pool.Id, model.PoolQuotaScopeToken)
 	if err != nil {
@@ -436,6 +437,12 @@ func GetTokenPoolUsageBatch(c *gin.Context) {
 			common.ApiError(c, buildErr)
 			return
 		}
+		llmUsage, llmErr := buildTokenPoolLLMTokenUsage(token, windows, windowSeconds)
+		if llmErr != nil {
+			common.ApiError(c, llmErr)
+			return
+		}
+		item.LlmTokenUsage = llmUsage
 		items = append(items, item)
 	}
 

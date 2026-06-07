@@ -316,13 +316,21 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	}
 
 	if modelName != "" {
-		tx = tx.Where("logs.model_name like ?", modelName)
+		modelNamePattern, err := substringLikePattern(modelName)
+		if err != nil {
+			return nil, 0, err
+		}
+		tx = tx.Where("logs.model_name LIKE ? ESCAPE '!'", modelNamePattern)
 	}
 	if username != "" {
 		tx = tx.Where("logs.username = ?", username)
 	}
 	if tokenName != "" {
-		tx = tx.Where("logs.token_name = ?", tokenName)
+		tokenNamePattern, err := substringLikePattern(tokenName)
+		if err != nil {
+			return nil, 0, err
+		}
+		tx = tx.Where("logs.token_name LIKE ? ESCAPE '!'", tokenNamePattern)
 	}
 	if requestId != "" {
 		tx = tx.Where("logs.request_id = ?", requestId)
@@ -402,14 +410,18 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	}
 
 	if modelName != "" {
-		modelNamePattern, err := sanitizeLikePattern(modelName)
+		modelNamePattern, err := substringLikePattern(modelName)
 		if err != nil {
 			return nil, 0, err
 		}
 		tx = tx.Where("logs.model_name LIKE ? ESCAPE '!'", modelNamePattern)
 	}
 	if tokenName != "" {
-		tx = tx.Where("logs.token_name = ?", tokenName)
+		tokenNamePattern, err := substringLikePattern(tokenName)
+		if err != nil {
+			return nil, 0, err
+		}
+		tx = tx.Where("logs.token_name LIKE ? ESCAPE '!'", tokenNamePattern)
 	}
 	if requestId != "" {
 		tx = tx.Where("logs.request_id = ?", requestId)
@@ -455,8 +467,12 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		rpmTpmQuery = rpmTpmQuery.Where("username = ?", username)
 	}
 	if tokenName != "" {
-		tx = tx.Where("token_name = ?", tokenName)
-		rpmTpmQuery = rpmTpmQuery.Where("token_name = ?", tokenName)
+		tokenNamePattern, err := substringLikePattern(tokenName)
+		if err != nil {
+			return stat, err
+		}
+		tx = tx.Where("token_name LIKE ? ESCAPE '!'", tokenNamePattern)
+		rpmTpmQuery = rpmTpmQuery.Where("token_name LIKE ? ESCAPE '!'", tokenNamePattern)
 	}
 	if startTimestamp != 0 {
 		tx = tx.Where("created_at >= ?", startTimestamp)
@@ -465,7 +481,7 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		tx = tx.Where("created_at <= ?", endTimestamp)
 	}
 	if modelName != "" {
-		modelNamePattern, err := sanitizeLikePattern(modelName)
+		modelNamePattern, err := substringLikePattern(modelName)
 		if err != nil {
 			return stat, err
 		}
@@ -506,7 +522,11 @@ func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		tx = tx.Where("username = ?", username)
 	}
 	if tokenName != "" {
-		tx = tx.Where("token_name = ?", tokenName)
+		tokenNamePattern, err := substringLikePattern(tokenName)
+		if err != nil {
+			return 0
+		}
+		tx = tx.Where("token_name LIKE ? ESCAPE '!'", tokenNamePattern)
 	}
 	if startTimestamp != 0 {
 		tx = tx.Where("created_at >= ?", startTimestamp)

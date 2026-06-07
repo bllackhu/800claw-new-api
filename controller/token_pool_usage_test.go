@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -339,6 +341,70 @@ func TestGetTokenPoolUsageSelf_LLMTokenAggregates(t *testing.T) {
 
 func countPtr(v int64) *int64 {
 	return &v
+}
+
+func TestGetTokenPoolUsageBatch_IncludesLLMTokenUsage(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	migratePoolTablesForTokenUsageTests(t, db)
+	require.NoError(t, db.AutoMigrate(&model.TokenLLMUsageBucket{}))
+	token := seedToken(t, db, 95, "batch-llm", "batch-llm-key")
+
+	now := time.Now().Unix()
+	bRecent := model.AlignTokenLLMUsageBucketStart(now - 3600)
+	require.NoError(t, db.Create(&model.TokenLLMUsageBucket{
+		TokenId:          token.Id,
+		BucketStart:      bRecent,
+		PromptTokens:     200,
+		CompletionTokens: 50,
+		RequestCount:     2,
+	}).Error)
+	require.NoError(t, db.Model(token).Updates(map[string]interface{}{
+		"llm_prompt_tokens_total":     500,
+		"llm_completion_tokens_total": 100,
+	}).Error)
+
+	body, err := json.Marshal(TokenPoolUsageBatchRequest{Ids: []int{token.Id}})
+	require.NoError(t, err)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/token/pool_usage", bytes.NewReader(body))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	ctx.Set("id", token.UserId)
+
+	GetTokenPoolUsageBatch(ctx)
+
+	var response tokenAPIResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	require.True(t, response.Success)
+
+	var payload struct {
+		Items []struct {
+			TokenId       int `json:"token_id"`
+			LlmTokenUsage struct {
+				DataSource string                              `json:"data_source"`
+				ByWindow   map[string]*TokenPoolLLMTokenWindow `json:"by_window"`
+				Lifetime   struct {
+					PromptTokens     int64 `json:"prompt_tokens"`
+					CompletionTokens int64 `json:"completion_tokens"`
+					TotalTokens      int64 `json:"total_tokens"`
+				} `json:"lifetime"`
+			} `json:"llm_token_usage"`
+		} `json:"items"`
+	}
+	require.NoError(t, common.Unmarshal(response.Data, &payload))
+	require.Len(t, payload.Items, 1)
+	require.Equal(t, token.Id, payload.Items[0].TokenId)
+	require.Equal(t, tokenPoolLLMTokenDataSource, payload.Items[0].LlmTokenUsage.DataSource)
+
+	w5 := payload.Items[0].LlmTokenUsage.ByWindow["5h"]
+	require.NotNil(t, w5)
+	require.EqualValues(t, 200, w5.PromptTokens)
+	require.EqualValues(t, 50, w5.CompletionTokens)
+	require.EqualValues(t, 250, w5.TotalTokens)
+	require.EqualValues(t, 500, payload.Items[0].LlmTokenUsage.Lifetime.PromptTokens)
+	require.EqualValues(t, 100, payload.Items[0].LlmTokenUsage.Lifetime.CompletionTokens)
+	require.EqualValues(t, 600, payload.Items[0].LlmTokenUsage.Lifetime.TotalTokens)
 }
 
 func migratePoolTablesForTokenUsageTests(t *testing.T, db *gorm.DB) {
