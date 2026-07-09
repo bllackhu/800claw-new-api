@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // TokenPoolSubscriptionOrder records a native WeChat Pay pool subscription checkout.
@@ -154,6 +155,55 @@ func TokenHasActivePoolSubscription(tokenId, poolId int) (bool, error) {
 		return false, err
 	}
 	return n > 0, nil
+}
+
+// GrantFirstRequestTrialIfEligible creates a one-time free subscription window for (tokenId, poolId)
+// iff no TokenPoolSubscription row exists yet. The window anchors on now (Asia/Shanghai calendar),
+// and period_end lands at 23:59:59 CST on the day now+periodSeconds days.
+//
+// Returns (true, nil) when a new trial row was created, (false, nil) when a row already existed
+// (either an active/expired trial, an admin comp, or a paid window). Concurrent callers race
+// through an INSERT ... ON CONFLICT DO NOTHING against uk_tp_token_pool; only the winner gets
+// (true, nil) and losers get (false, nil).
+func GrantFirstRequestTrialIfEligible(tokenId, poolId int, periodSeconds int64) (bool, error) {
+	if tokenId <= 0 || poolId <= 0 {
+		return false, errors.New("invalid token_id or pool_id")
+	}
+	if periodSeconds <= 0 {
+		periodSeconds = 30 * secondsPerDay
+	}
+	// Fast path: if a row already exists (active or expired), the customer has
+	// already consumed their free window and we must not extend it here.
+	var existing TokenPoolSubscription
+	err := DB.Where("token_id = ? AND pool_id = ?", tokenId, poolId).First(&existing).Error
+	if err == nil {
+		return false, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, err
+	}
+	now := common.GetTimestamp()
+	newEnd := periodEndAtBillingEOD(now, periodSeconds)
+	sub := TokenPoolSubscription{
+		TokenId:     tokenId,
+		PoolId:      poolId,
+		PeriodStart: now,
+		PeriodEnd:   newEnd,
+		LastOrderId: 0,
+	}
+	// Race-safe insert: on unique-index conflict against uk_tp_token_pool the
+	// concurrent winner's row survives and this call reports not-granted.
+	res := DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "token_id"}, {Name: "pool_id"}},
+		DoNothing: true,
+	}).Create(&sub)
+	if res.Error != nil {
+		if isUniqueConstraintViolation(res.Error) {
+			return false, nil
+		}
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
 }
 
 var poolSubscriptionLocation = func() *time.Location {

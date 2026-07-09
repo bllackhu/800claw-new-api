@@ -27,7 +27,6 @@ import {
   AvatarGroup,
   Avatar,
   Tooltip,
-  Progress,
   Popover,
   Typography,
   Input,
@@ -36,7 +35,6 @@ import {
 import {
   timestamp2string,
   renderGroup,
-  renderQuota,
   getModelCategories,
   showError,
   getPoolUsageReasonText,
@@ -47,14 +45,6 @@ import {
   IconEyeOpened,
   IconEyeClosed,
 } from '@douyinfe/semi-icons';
-
-// progress color helper
-const getProgressColor = (pct) => {
-  if (pct === 100) return 'var(--semi-color-success)';
-  if (pct <= 10) return 'var(--semi-color-danger)';
-  if (pct <= 30) return 'var(--semi-color-warning)';
-  return undefined;
-};
 
 // Render functions
 function renderTimestamp(timestamp) {
@@ -253,100 +243,6 @@ const renderModelLimits = (text, record, t) => {
       </Tag>
     );
   }
-};
-
-// Render IP restrictions column
-const renderAllowIps = (text, t) => {
-  if (!text || text.trim() === '') {
-    return (
-      <Tag color='white' shape='circle'>
-        {t('无限制')}
-      </Tag>
-    );
-  }
-
-  const ips = text
-    .split('\n')
-    .map((ip) => ip.trim())
-    .filter(Boolean);
-
-  const displayIps = ips.slice(0, 1);
-  const extraCount = ips.length - displayIps.length;
-
-  const ipTags = displayIps.map((ip, idx) => (
-    <Tag key={idx} shape='circle'>
-      {ip}
-    </Tag>
-  ));
-
-  if (extraCount > 0) {
-    ipTags.push(
-      <Tooltip
-        key='extra'
-        content={ips.slice(1).join(', ')}
-        position='top'
-        showArrow
-      >
-        <Tag shape='circle'>{'+' + extraCount}</Tag>
-      </Tooltip>,
-    );
-  }
-
-  return <Space wrap>{ipTags}</Space>;
-};
-
-// Render separate quota usage column
-const renderQuotaUsage = (text, record, t) => {
-  const { Paragraph } = Typography;
-  const used = parseInt(record.used_quota) || 0;
-  const remain = parseInt(record.remain_quota) || 0;
-  const total = used + remain;
-  if (record.unlimited_quota) {
-    const popoverContent = (
-      <div className='text-xs p-2'>
-        <Paragraph copyable={{ content: renderQuota(used) }}>
-          {t('已用额度')}: {renderQuota(used)}
-        </Paragraph>
-      </div>
-    );
-    return (
-      <Popover content={popoverContent} position='top'>
-        <Tag color='white' shape='circle'>
-          {t('无限额度')}
-        </Tag>
-      </Popover>
-    );
-  }
-  const percent = total > 0 ? (remain / total) * 100 : 0;
-  const popoverContent = (
-    <div className='text-xs p-2'>
-      <Paragraph copyable={{ content: renderQuota(used) }}>
-        {t('已用额度')}: {renderQuota(used)}
-      </Paragraph>
-      <Paragraph copyable={{ content: renderQuota(remain) }}>
-        {t('剩余额度')}: {renderQuota(remain)} ({percent.toFixed(0)}%)
-      </Paragraph>
-      <Paragraph copyable={{ content: renderQuota(total) }}>
-        {t('总额度')}: {renderQuota(total)}
-      </Paragraph>
-    </div>
-  );
-  return (
-    <Popover content={popoverContent} position='top'>
-      <Tag color='white' shape='circle'>
-        <div className='flex flex-col items-end'>
-          <span className='text-xs leading-none'>{`${renderQuota(remain)} / ${renderQuota(total)}`}</span>
-          <Progress
-            percent={percent}
-            stroke={getProgressColor(percent)}
-            aria-label='quota usage'
-            format={() => `${percent.toFixed(0)}%`}
-            style={{ width: '100%', marginTop: '1px', marginBottom: 0 }}
-          />
-        </div>
-      </Tag>
-    </Popover>
-  );
 };
 
 const renderPoolUsageMetric = (label, metric, t) => {
@@ -599,13 +495,23 @@ export const getTokensColumns = ({
 }) => {
   return [
     {
-      title: t('Token ID'),
+      title: t('Token'),
       dataIndex: 'id',
-      width: 120,
+      width: 80,
       render: (text, record) => (
         <Typography.Text copyable={{ content: String(record.id) }}>
           {record.id}
         </Typography.Text>
+      ),
+    },
+    {
+      title: t('订阅'),
+      dataIndex: 'require_pool_subscription',
+      key: 'require_pool_subscription',
+      render: (text) => (
+        <Tag color={text ? 'green' : 'grey'} shape='circle' size='small'>
+          {text ? t('是') : t('否')}
+        </Tag>
       ),
     },
     {
@@ -641,11 +547,6 @@ export const getTokensColumns = ({
       render: (text, record) => renderGroupColumn(text, record, t, groupRatios),
     },
     {
-      title: t('剩余额度/总额度'),
-      key: 'quota_usage',
-      render: (text, record) => renderQuotaUsage(text, record, t),
-    },
-    {
       title: t('Token词元使用'),
       key: 'pool_usage',
       render: (text, record) =>
@@ -663,26 +564,10 @@ export const getTokensColumns = ({
       render: (text, record) => renderModelLimits(text, record, t),
     },
     {
-      title: t('IP限制'),
-      dataIndex: 'allow_ips',
-      render: (text) => renderAllowIps(text, t),
-    },
-    {
       title: t('创建时间'),
       dataIndex: 'created_time',
       render: (text, record, index) => {
         return <div>{renderTimestamp(text)}</div>;
-      },
-    },
-    {
-      title: t('过期时间'),
-      dataIndex: 'expired_time',
-      render: (text, record, index) => {
-        return (
-          <div>
-            {record.expired_time === -1 ? t('永不过期') : renderTimestamp(text)}
-          </div>
-        );
       },
     },
     {

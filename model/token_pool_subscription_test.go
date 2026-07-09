@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -210,4 +211,107 @@ func TestListTokenPoolSubscriptions_Filters(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(2), total)
 	require.Len(t, items, 2)
+}
+
+func TestGrantFirstRequestTrial_CreatesRowForNewToken(t *testing.T) {
+	setupTokenPoolSubscriptionAdminTestDB(t)
+
+	period := int64(30 * 86400)
+	before := common.GetTimestamp()
+	granted, err := GrantFirstRequestTrialIfEligible(101, 202, period)
+	require.NoError(t, err)
+	require.True(t, granted)
+
+	sub, err := GetTokenPoolSubscription(101, 202)
+	require.NoError(t, err)
+	require.NotNil(t, sub)
+	require.GreaterOrEqual(t, sub.PeriodStart, before)
+	require.Equal(t, 0, sub.LastOrderId)
+	// period_end lands at 23:59:59 CST on anchor day + 30 days.
+	expected := periodEndAtBillingEOD(sub.PeriodStart, period)
+	require.Equal(t, expected, sub.PeriodEnd)
+
+	ok, err := TokenHasActivePoolSubscription(101, 202)
+	require.NoError(t, err)
+	require.True(t, ok)
+}
+
+func TestGrantFirstRequestTrial_NoopWhenSubscriptionExists(t *testing.T) {
+	setupTokenPoolSubscriptionAdminTestDB(t)
+
+	period := int64(30 * 86400)
+	now := common.GetTimestamp()
+
+	// Seed a paid-looking window already covering (token, pool).
+	existingEnd := periodEndAtBillingEOD(now, period)
+	require.NoError(t, DB.Create(&TokenPoolSubscription{
+		TokenId:     102,
+		PoolId:      202,
+		PeriodStart: now - 3600,
+		PeriodEnd:   existingEnd,
+		LastOrderId: 999,
+	}).Error)
+
+	granted, err := GrantFirstRequestTrialIfEligible(102, 202, period)
+	require.NoError(t, err)
+	require.False(t, granted)
+
+	sub, err := GetTokenPoolSubscription(102, 202)
+	require.NoError(t, err)
+	require.Equal(t, existingEnd, sub.PeriodEnd)
+	require.Equal(t, 999, sub.LastOrderId)
+
+	// Also verify no-op when an expired trial row already exists — the customer
+	// consumed their free window and must now pay.
+	expiredEnd := now - 3600
+	require.NoError(t, DB.Create(&TokenPoolSubscription{
+		TokenId:     103,
+		PoolId:      202,
+		PeriodStart: now - 40*86400,
+		PeriodEnd:   expiredEnd,
+		LastOrderId: 0,
+	}).Error)
+
+	granted, err = GrantFirstRequestTrialIfEligible(103, 202, period)
+	require.NoError(t, err)
+	require.False(t, granted)
+
+	sub, err = GetTokenPoolSubscription(103, 202)
+	require.NoError(t, err)
+	require.Equal(t, expiredEnd, sub.PeriodEnd)
+}
+
+func TestGrantFirstRequestTrial_ConcurrentInsertsOnlyOneWins(t *testing.T) {
+	setupTokenPoolSubscriptionAdminTestDB(t)
+
+	period := int64(30 * 86400)
+	const goroutines = 5
+	results := make([]bool, goroutines)
+	errs := make([]error, goroutines)
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			granted, err := GrantFirstRequestTrialIfEligible(104, 202, period)
+			results[idx] = granted
+			errs[idx] = err
+		}(i)
+	}
+	wg.Wait()
+
+	wins := 0
+	for i := 0; i < goroutines; i++ {
+		require.NoError(t, errs[i])
+		if results[i] {
+			wins++
+		}
+	}
+	require.Equal(t, 1, wins, "exactly one goroutine should create the trial row")
+
+	var count int64
+	require.NoError(t, DB.Model(&TokenPoolSubscription{}).
+		Where("token_id = ? AND pool_id = ?", 104, 202).
+		Count(&count).Error)
+	require.Equal(t, int64(1), count)
 }

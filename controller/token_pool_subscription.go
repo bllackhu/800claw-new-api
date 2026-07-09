@@ -343,8 +343,68 @@ func GetPoolSubscriptionOrders(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+
+	type poolSubscriptionOrderAdminItem struct {
+		*model.TokenPoolSubscriptionOrder
+		TokenName string `json:"token_name,omitempty"`
+		PoolName  string `json:"pool_name,omitempty"`
+	}
+
+	out := make([]poolSubscriptionOrderAdminItem, 0, len(items))
+	tokenIDs := make(map[int]struct{})
+	poolIDs := make(map[int]struct{})
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		out = append(out, poolSubscriptionOrderAdminItem{TokenPoolSubscriptionOrder: item})
+		if item.TokenId > 0 {
+			tokenIDs[item.TokenId] = struct{}{}
+		}
+		if item.PoolId > 0 {
+			poolIDs[item.PoolId] = struct{}{}
+		}
+	}
+
+	tokenNames := make(map[int]string)
+	if len(tokenIDs) > 0 {
+		ids := make([]int, 0, len(tokenIDs))
+		for id := range tokenIDs {
+			ids = append(ids, id)
+		}
+		var tokens []model.Token
+		if err := model.DB.Where("id IN ?", ids).Select("id", "name").Find(&tokens).Error; err == nil {
+			for i := range tokens {
+				tokenNames[tokens[i].Id] = tokens[i].Name
+			}
+		}
+	}
+
+	poolNames := make(map[int]string)
+	if len(poolIDs) > 0 {
+		ids := make([]int, 0, len(poolIDs))
+		for id := range poolIDs {
+			ids = append(ids, id)
+		}
+		var pools []model.Pool
+		if err := model.DB.Where("id IN ?", ids).Select("id", "name").Find(&pools).Error; err == nil {
+			for i := range pools {
+				poolNames[pools[i].Id] = pools[i].Name
+			}
+		}
+	}
+
+	for i := range out {
+		if name, ok := tokenNames[out[i].TokenId]; ok {
+			out[i].TokenName = name
+		}
+		if name, ok := poolNames[out[i].PoolId]; ok {
+			out[i].PoolName = name
+		}
+	}
+
 	common.ApiSuccess(c, gin.H{
-		"items":     items,
+		"items":     out,
 		"total":     total,
 		"page":      pageInfo.GetPage(),
 		"page_size": pageInfo.GetPageSize(),

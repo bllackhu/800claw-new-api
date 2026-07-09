@@ -385,6 +385,7 @@ const PoolsTable = () => {
             loading={tokenSubLoading}
             columns={tokenSubColumns}
             dataSource={tokenSubItems}
+            scroll={{ x: 'max-content' }}
             pagination={{
               currentPage: tokenSubPage,
               pageSize: PAGE_SIZE,
@@ -409,6 +410,7 @@ const PoolsTable = () => {
             loading={subOrderLoading}
             columns={subOrderColumns}
             dataSource={subOrderItems}
+            scroll={{ x: 'max-content' }}
             pagination={{
               currentPage: subOrderPage,
               pageSize: PAGE_SIZE,

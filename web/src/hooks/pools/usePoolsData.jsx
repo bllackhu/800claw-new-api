@@ -894,9 +894,22 @@ export const usePoolsData = () => {
   const subOrderColumns = useMemo(
     () => [
       { title: 'ID', dataIndex: 'id', width: 72 },
-      { title: 'User', dataIndex: 'user_id', width: 72 },
       { title: 'Token', dataIndex: 'token_id', width: 72 },
+      {
+        title: t('Token name'),
+        dataIndex: 'token_name',
+        width: 140,
+        ellipsis: { showTitle: true },
+        render: (v) => v || '—',
+      },
       { title: 'Pool', dataIndex: 'pool_id', width: 72 },
+      {
+        title: t('Pool name'),
+        dataIndex: 'pool_name',
+        width: 140,
+        ellipsis: { showTitle: true },
+        render: (v) => v || '—',
+      },
       {
         title: 'Amount (CNY)',
         dataIndex: 'amount_cny',
@@ -933,24 +946,38 @@ export const usePoolsData = () => {
       { title: 'Created', dataIndex: 'create_time', width: 110 },
       { title: 'Completed', dataIndex: 'complete_time', width: 110 },
     ],
-    [],
+    [t],
   );
 
   const tokenSubColumns = useMemo(
     () => [
       { title: 'ID', dataIndex: 'id', width: 72 },
       { title: 'Token', dataIndex: 'token_id', width: 72 },
+      {
+        title: t('Token name'),
+        dataIndex: 'token_name',
+        width: 140,
+        ellipsis: { showTitle: true },
+        render: (v) => v || '—',
+      },
       { title: 'Pool', dataIndex: 'pool_id', width: 72 },
+      {
+        title: t('Pool name'),
+        dataIndex: 'pool_name',
+        width: 140,
+        ellipsis: { showTitle: true },
+        render: (v) => v || '—',
+      },
       {
         title: t('Period start'),
         dataIndex: 'period_start',
-        width: 168,
+        width: 200,
         render: (v) => formatTokenSubUnix(v),
       },
       {
         title: t('Period end'),
         dataIndex: 'period_end',
-        width: 168,
+        width: 200,
         render: (v) => formatTokenSubUnix(v),
       },
       {

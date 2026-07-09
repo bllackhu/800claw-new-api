@@ -11,7 +11,9 @@ import (
 
 type tokenPoolSubscriptionAdminItem struct {
 	model.TokenPoolSubscription
-	Active bool `json:"active"`
+	Active    bool   `json:"active"`
+	TokenName string `json:"token_name,omitempty"`
+	PoolName  string `json:"pool_name,omitempty"`
 }
 
 type putTokenPoolSubscriptionRequest struct {
@@ -50,6 +52,8 @@ func GetTokenPoolSubscriptions(c *gin.Context) {
 			Active:                item.PeriodEnd >= now,
 		})
 	}
+
+	enrichTokenPoolSubscriptionItems(out)
 
 	common.ApiSuccess(c, gin.H{
 		"items":     out,
@@ -91,8 +95,63 @@ func PutTokenPoolSubscription(c *gin.Context) {
 		" pool_id="+strconv.Itoa(req.PoolId)+" period_end="+strconv.FormatInt(req.PeriodEnd, 10))
 
 	now := common.GetTimestamp()
-	common.ApiSuccess(c, tokenPoolSubscriptionAdminItem{
+	item := tokenPoolSubscriptionAdminItem{
 		TokenPoolSubscription: *sub,
 		Active:                sub.PeriodEnd >= now,
-	})
+	}
+	enrichTokenPoolSubscriptionItems([]tokenPoolSubscriptionAdminItem{item})
+	common.ApiSuccess(c, item)
+}
+
+func enrichTokenPoolSubscriptionItems(items []tokenPoolSubscriptionAdminItem) {
+	if len(items) == 0 {
+		return
+	}
+	tokenIDs := make(map[int]struct{})
+	poolIDs := make(map[int]struct{})
+	for i := range items {
+		if items[i].TokenId > 0 {
+			tokenIDs[items[i].TokenId] = struct{}{}
+		}
+		if items[i].PoolId > 0 {
+			poolIDs[items[i].PoolId] = struct{}{}
+		}
+	}
+
+	tokenNames := make(map[int]string)
+	if len(tokenIDs) > 0 {
+		ids := make([]int, 0, len(tokenIDs))
+		for id := range tokenIDs {
+			ids = append(ids, id)
+		}
+		var tokens []model.Token
+		if err := model.DB.Where("id IN ?", ids).Select("id", "name").Find(&tokens).Error; err == nil {
+			for i := range tokens {
+				tokenNames[tokens[i].Id] = tokens[i].Name
+			}
+		}
+	}
+
+	poolNames := make(map[int]string)
+	if len(poolIDs) > 0 {
+		ids := make([]int, 0, len(poolIDs))
+		for id := range poolIDs {
+			ids = append(ids, id)
+		}
+		var pools []model.Pool
+		if err := model.DB.Where("id IN ?", ids).Select("id", "name").Find(&pools).Error; err == nil {
+			for i := range pools {
+				poolNames[pools[i].Id] = pools[i].Name
+			}
+		}
+	}
+
+	for i := range items {
+		if name, ok := tokenNames[items[i].TokenId]; ok {
+			items[i].TokenName = name
+		}
+		if name, ok := poolNames[items[i].PoolId]; ok {
+			items[i].PoolName = name
+		}
+	}
 }
