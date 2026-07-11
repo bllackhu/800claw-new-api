@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Button,
+  Divider,
   Input,
   InputNumber,
   Select,
@@ -10,7 +11,7 @@ import {
   Typography,
 } from '@douyinfe/semi-ui';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 const PoolFormSideSheet = ({
   visible,
@@ -108,6 +109,57 @@ const PoolFormSideSheet = ({
                 value === '' ? 30 * 24 * 3600 : parseInt(value, 10) || 30 * 24 * 3600,
             }))
           }
+        />
+        <Divider margin='12px' />
+        <Text type='secondary' size='small'>
+          {t('Plan tier (optional)')}
+        </Text>
+        <Input
+          placeholder='display_name (customer-facing label, falls back to name)'
+          value={formData.display_name || ''}
+          onChange={(value) =>
+            setFormData((prev) => ({ ...prev, display_name: value }))
+          }
+        />
+        <Input
+          placeholder='plan_code (e.g. lite, pro)'
+          value={formData.plan_code || ''}
+          onChange={(value) =>
+            setFormData((prev) => ({ ...prev, plan_code: value }))
+          }
+        />
+        <Input
+          placeholder='plan_group (e.g. standard) - pools in the same group can upgrade/downgrade'
+          value={formData.plan_group || ''}
+          onChange={(value) =>
+            setFormData((prev) => ({ ...prev, plan_group: value }))
+          }
+        />
+        <InputNumber
+          placeholder='plan_tier (higher = more premium, e.g. Lite=10, Pro=20)'
+          style={{ width: '100%' }}
+          value={Number(formData.plan_tier ?? 0)}
+          min={0}
+          step={1}
+          precision={0}
+          hideButtons
+          onChange={(value) => {
+            const n = typeof value === 'number' && Number.isFinite(value) ? value : 0;
+            setFormData((prev) => ({ ...prev, plan_tier: n }));
+          }}
+        />
+        <InputNumber
+          placeholder='display_order (ascending)'
+          style={{ width: '100%' }}
+          value={Number(formData.display_order ?? 0)}
+          min={0}
+          step={1}
+          precision={0}
+          hideButtons
+          onChange={(value) => {
+            const n = typeof value === 'number' && Number.isFinite(value) ? value : 0;
+            setFormData((prev) => ({ ...prev, display_order: n }));
+          }}
         />
       </div>
     </SideSheet>

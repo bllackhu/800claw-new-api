@@ -3714,6 +3714,24 @@
     "Last order": "Last order",
     "token_id and pool_id are required": "token_id and pool_id are required",
     "Subscription period end is required": "Subscription period end is required",
-    "Invalid subscription period end": "Invalid subscription period end"
+    "Invalid subscription period end": "Invalid subscription period end",
+    "Period Options": "Period Options",
+    "Plan tier (optional)": "Plan tier (optional)",
+    "Plan code": "Plan code",
+    "Plan group": "Plan group",
+    "Plan tier": "Plan tier",
+    "Display name": "Display name",
+    "Display order": "Display order",
+    "Period months": "Period months",
+    "Discount ratio (bp)": "Discount ratio (bp)",
+    "Sort order": "Sort order",
+    "Create Period Option": "Create Period Option",
+    "Update Period Option": "Update Period Option",
+    "Effective price ratio": "Effective price ratio",
+    "Failed to load period options": "Failed to load period options",
+    "Failed to save period option": "Failed to save period option",
+    "Failed to delete period option": "Failed to delete period option",
+    "pool_id and period_months are required": "pool_id and period_months are required",
+    "discount_ratio_bp must be between 1 and 10000": "discount_ratio_bp must be between 1 and 10000"
   }
 }

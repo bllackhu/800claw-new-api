@@ -140,7 +140,7 @@ func TestUpsertTokenPoolSubscriptionTx_EODNewAndRenewal(t *testing.T) {
 	period30 := int64(30 * 86400)
 
 	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
-		return upsertTokenPoolSubscriptionTx(tx, 1, 10, 100, period30, anchor)
+		return upsertTokenPoolSubscriptionTx(tx, 1, 10, 100, period30, anchor, 0)
 	}))
 
 	sub, err := GetTokenPoolSubscription(1, 10)
@@ -150,7 +150,7 @@ func TestUpsertTokenPoolSubscriptionTx_EODNewAndRenewal(t *testing.T) {
 
 	renewTime := time.Date(2026, 6, 15, 10, 0, 0, 0, loc).Unix()
 	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
-		return upsertTokenPoolSubscriptionTx(tx, 1, 10, 101, period30, renewTime)
+		return upsertTokenPoolSubscriptionTx(tx, 1, 10, 101, period30, renewTime, 0)
 	}))
 
 	sub2, err := GetTokenPoolSubscription(1, 10)

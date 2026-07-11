@@ -36,6 +36,7 @@ import PoolFormSideSheet from './modals/PoolFormSideSheet';
 import PoolChannelFormSideSheet from './modals/PoolChannelFormSideSheet';
 import PoolPolicyFormSideSheet from './modals/PoolPolicyFormSideSheet';
 import PoolBindingFormSideSheet from './modals/PoolBindingFormSideSheet';
+import PoolPeriodOptionFormSideSheet from './modals/PoolPeriodOptionFormSideSheet';
 import TokenSubscriptionFormSideSheet from './modals/TokenSubscriptionFormSideSheet';
 
 const { Text } = Typography;
@@ -77,6 +78,22 @@ const PoolsTable = () => {
     setChannelPoolFilter,
     clearChannelFilters,
     savePoolChannel,
+
+    periodOptionItems,
+    periodOptionTotal,
+    periodOptionPage,
+    periodOptionLoading,
+    periodOptionForm,
+    setPeriodOptionForm,
+    showPeriodOptionForm,
+    openCreatePeriodOption,
+    closePeriodOptionForm,
+    periodOptionColumns,
+    periodOptionPoolFilter,
+    setPeriodOptionPoolFilter,
+    clearPeriodOptionFilters,
+    loadPeriodOptions,
+    savePeriodOption,
 
     policyItems,
     policyTotal,
@@ -164,6 +181,14 @@ const PoolsTable = () => {
         onCancel={closeChannelForm}
         t={t}
       />
+      <PoolPeriodOptionFormSideSheet
+        visible={showPeriodOptionForm}
+        formData={periodOptionForm}
+        setFormData={setPeriodOptionForm}
+        onSubmit={savePeriodOption}
+        onCancel={closePeriodOptionForm}
+        t={t}
+      />
       <PoolPolicyFormSideSheet
         visible={showPolicyForm}
         formData={policyForm}
@@ -203,6 +228,7 @@ const PoolsTable = () => {
           onClick={() => {
             if (activeTab === 'pool') loadPools(1);
             if (activeTab === 'channel') loadPoolChannels(1);
+            if (activeTab === 'period_option') loadPeriodOptions(1);
             if (activeTab === 'policy') loadPolicies(1);
             if (activeTab === 'binding') loadBindings(1);
             if (activeTab === 'sub_orders') loadSubscriptionOrders(subOrderPage);
@@ -278,6 +304,39 @@ const PoolsTable = () => {
               pageSize: PAGE_SIZE,
               total: poolTotal,
               onPageChange: (p) => loadPools(p),
+            }}
+            empty={
+              <Empty description={t('No data')}>
+                <span />
+              </Empty>
+            }
+          />
+        </TabPane>
+
+        <TabPane className='pt-4' tab={t('Period Options')} itemKey='period_option'>
+          <div className='flex gap-2 mb-3'>
+            <Button type='primary' onClick={openCreatePeriodOption}>
+              {t('Create')}
+            </Button>
+            <Input
+              placeholder='filter pool_id'
+              value={periodOptionPoolFilter}
+              onChange={(value) => setPeriodOptionPoolFilter(value)}
+              style={{ maxWidth: 220 }}
+            />
+            <Button onClick={() => loadPeriodOptions(1)}>{t('Apply Filter')}</Button>
+            <Button onClick={clearPeriodOptionFilters}>{t('Clear Filters')}</Button>
+          </div>
+          <Table
+            rowKey='id'
+            loading={periodOptionLoading}
+            columns={periodOptionColumns}
+            dataSource={periodOptionItems}
+            pagination={{
+              currentPage: periodOptionPage,
+              pageSize: PAGE_SIZE,
+              total: periodOptionTotal,
+              onPageChange: () => {},
             }}
             empty={
               <Empty description={t('No data')}>

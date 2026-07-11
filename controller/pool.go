@@ -520,3 +520,71 @@ func GetSelfPoolRollingUsage(c *gin.Context) {
 		"used_count":     count,
 	})
 }
+
+// GetPoolPeriodOptionsAdmin lists all period options (including disabled) for admin UI.
+// GET /api/pool/period_option?pool_id=
+func GetPoolPeriodOptionsAdmin(c *gin.Context) {
+	poolId, _ := strconv.Atoi(c.DefaultQuery("pool_id", "0"))
+	items, err := model.ListPoolPeriodOptions(poolId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"items": items,
+	})
+}
+
+func CreatePoolPeriodOptionAdmin(c *gin.Context) {
+	req := &model.PoolPeriodOption{}
+	if err := c.ShouldBindJSON(req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if req.PoolId <= 0 || req.PeriodMonths <= 0 {
+		common.ApiErrorMsg(c, "pool_id and period_months are required")
+		return
+	}
+	if req.DiscountRatioBp <= 0 {
+		req.DiscountRatioBp = 10000
+	}
+	if err := model.CreatePoolPeriodOption(req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, req)
+}
+
+func UpdatePoolPeriodOptionAdmin(c *gin.Context) {
+	req := &model.PoolPeriodOption{}
+	if err := c.ShouldBindJSON(req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if req.Id <= 0 {
+		common.ApiErrorMsg(c, "invalid pool period option id")
+		return
+	}
+	if req.PoolId <= 0 || req.PeriodMonths <= 0 {
+		common.ApiErrorMsg(c, "pool_id and period_months are required")
+		return
+	}
+	if err := model.UpdatePoolPeriodOption(req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, req)
+}
+
+func DeletePoolPeriodOptionAdmin(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err = model.DeletePoolPeriodOption(id); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"id": id})
+}

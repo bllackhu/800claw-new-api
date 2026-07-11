@@ -82,6 +82,11 @@ export const usePoolsData = () => {
     monthly_price_cny_input: '0',
     billing_currency: 'CNY',
     billing_period_seconds: 30 * 24 * 3600,
+    plan_code: '',
+    plan_group: '',
+    plan_tier: 0,
+    display_name: '',
+    display_order: 0,
   });
   const [showPoolForm, setShowPoolForm] = useState(false);
 
@@ -118,6 +123,21 @@ export const usePoolsData = () => {
   });
   const [showChannelForm, setShowChannelForm] = useState(false);
   const [channelPoolFilter, setChannelPoolFilter] = useState('');
+
+  const [periodOptionItems, setPeriodOptionItems] = useState([]);
+  const [periodOptionTotal, setPeriodOptionTotal] = useState(0);
+  const [periodOptionPage, setPeriodOptionPage] = useState(1);
+  const [periodOptionLoading, setPeriodOptionLoading] = useState(false);
+  const [periodOptionForm, setPeriodOptionForm] = useState({
+    id: 0,
+    pool_id: '',
+    period_months: 1,
+    discount_ratio_bp: 10000,
+    enabled: true,
+    sort_order: 0,
+  });
+  const [showPeriodOptionForm, setShowPeriodOptionForm] = useState(false);
+  const [periodOptionPoolFilter, setPeriodOptionPoolFilter] = useState('');
 
   const [policyItems, setPolicyItems] = useState([]);
   const [policyTotal, setPolicyTotal] = useState(0);
@@ -220,11 +240,38 @@ export const usePoolsData = () => {
     [channelPage, channelPoolFilter, t],
   );
 
+  const loadPeriodOptions = useCallback(
+    async (targetPage = periodOptionPage, overrides = {}) => {
+      setPeriodOptionLoading(true);
+      try {
+        const effectivePoolFilter =
+          overrides.poolFilter !== undefined
+            ? overrides.poolFilter
+            : periodOptionPoolFilter;
+        const poolQuery = effectivePoolFilter
+          ? `?pool_id=${encodeURIComponent(effectivePoolFilter)}`
+          : '';
+        const res = await API.get(`/api/pool/period_option${poolQuery}`);
+        const { success, message, data } = res.data;
+        if (!success) {
+          showError(message || t('Failed to load period options'));
+          return;
+        }
+        const items = data?.items || [];
+        setPeriodOptionItems(items);
+        setPeriodOptionTotal(items.length);
+        setPeriodOptionPage(targetPage);
+      } catch (error) {
+        showError(getErrorMessage(error, t('Failed to load period options')));
+      } finally {
+        setPeriodOptionLoading(false);
+      }
+    },
+    [periodOptionPage, periodOptionPoolFilter, t],
+  );
+
   const loadPolicies = useCallback(
-    async (
-      targetPage = policyPage,
-      overrides = {},
-    ) => {
+    async (targetPage = policyPage, overrides = {}) => {
       setPolicyLoading(true);
       try {
         const effectivePoolFilter =
@@ -369,6 +416,8 @@ export const usePoolsData = () => {
     setActiveTab(key);
     if (key === 'pool' && poolItems.length === 0) await loadPools(1);
     if (key === 'channel' && channelItems.length === 0) await loadPoolChannels(1);
+    if (key === 'period_option' && periodOptionItems.length === 0)
+      await loadPeriodOptions(1);
     if (key === 'policy' && policyItems.length === 0) await loadPolicies(1);
     if (key === 'binding' && bindingItems.length === 0) await loadBindings(1);
     if (key === 'sub_orders' && subOrderItems.length === 0)
@@ -387,6 +436,11 @@ export const usePoolsData = () => {
       monthly_price_cny_input: '0',
       billing_currency: 'CNY',
       billing_period_seconds: 30 * 24 * 3600,
+      plan_code: '',
+      plan_group: '',
+      plan_tier: 0,
+      display_name: '',
+      display_order: 0,
     });
   const resetChannelForm = () =>
     setChannelForm({
@@ -396,6 +450,15 @@ export const usePoolsData = () => {
       weight: 0,
       priority: 0,
       enabled: true,
+    });
+  const resetPeriodOptionForm = () =>
+    setPeriodOptionForm({
+      id: 0,
+      pool_id: '',
+      period_months: 1,
+      discount_ratio_bp: 10000,
+      enabled: true,
+      sort_order: 0,
     });
   const resetPolicyForm = () =>
     setPolicyForm({
@@ -516,6 +579,11 @@ export const usePoolsData = () => {
       billing_currency: record.billing_currency || 'CNY',
       billing_period_seconds:
         Number(record.billing_period_seconds) || 30 * 24 * 3600,
+      plan_code: record.plan_code || '',
+      plan_group: record.plan_group || '',
+      plan_tier: Number(record.plan_tier) || 0,
+      display_name: record.display_name || '',
+      display_order: Number(record.display_order) || 0,
     });
     setShowPoolForm(true);
   };
@@ -541,6 +609,30 @@ export const usePoolsData = () => {
   const closeChannelForm = () => {
     setShowChannelForm(false);
     resetChannelForm();
+  };
+  const openCreatePeriodOption = () => {
+    resetPeriodOptionForm();
+    setShowPeriodOptionForm(true);
+  };
+  const openEditPeriodOption = (record) => {
+    setPeriodOptionForm({
+      id: record.id,
+      pool_id: String(record.pool_id || ''),
+      period_months: Number(record.period_months) || 1,
+      discount_ratio_bp: Number(record.discount_ratio_bp) || 10000,
+      enabled: Boolean(record.enabled),
+      sort_order: Number(record.sort_order) || 0,
+    });
+    setShowPeriodOptionForm(true);
+  };
+  const closePeriodOptionForm = () => {
+    setShowPeriodOptionForm(false);
+    resetPeriodOptionForm();
+  };
+  const clearPeriodOptionFilters = async () => {
+    setPeriodOptionPoolFilter('');
+    setPeriodOptionPage(1);
+    await loadPeriodOptions(1, { poolFilter: '' });
   };
   const openCreatePolicy = () => {
     resetPolicyForm();
@@ -615,6 +707,11 @@ export const usePoolsData = () => {
       billing_currency: poolForm.billing_currency || 'CNY',
       billing_period_seconds:
         Number(poolForm.billing_period_seconds) || 30 * 24 * 3600,
+      plan_code: (poolForm.plan_code || '').trim(),
+      plan_group: (poolForm.plan_group || '').trim(),
+      plan_tier: Number(poolForm.plan_tier) || 0,
+      display_name: (poolForm.display_name || '').trim(),
+      display_order: Number(poolForm.display_order) || 0,
     };
     try {
       const res =
@@ -660,6 +757,43 @@ export const usePoolsData = () => {
       await loadPoolChannels(channelPage);
     } catch (error) {
       showError(getErrorMessage(error, t('Failed to save pool channel')));
+    }
+  };
+
+  const savePeriodOption = async () => {
+    const poolId = Number(periodOptionForm.pool_id);
+    const months = Number(periodOptionForm.period_months);
+    const bp = Number(periodOptionForm.discount_ratio_bp);
+    if (!poolId || months <= 0) {
+      showError(t('pool_id and period_months are required'));
+      return;
+    }
+    if (!Number.isFinite(bp) || bp <= 0 || bp > 10000) {
+      showError(t('discount_ratio_bp must be between 1 and 10000'));
+      return;
+    }
+    const payload = {
+      id: Number(periodOptionForm.id) || 0,
+      pool_id: poolId,
+      period_months: months,
+      discount_ratio_bp: bp,
+      enabled: Boolean(periodOptionForm.enabled),
+      sort_order: Number(periodOptionForm.sort_order) || 0,
+    };
+    try {
+      const res =
+        payload.id > 0
+          ? await API.put('/api/pool/period_option', payload)
+          : await API.post('/api/pool/period_option', payload);
+      if (!res?.data?.success) {
+        showError(res?.data?.message || t('Failed to save period option'));
+        return;
+      }
+      showSuccess(t('Saved successfully'));
+      closePeriodOptionForm();
+      await loadPeriodOptions(periodOptionPage);
+    } catch (error) {
+      showError(getErrorMessage(error, t('Failed to save period option')));
     }
   };
 
@@ -838,6 +972,23 @@ export const usePoolsData = () => {
         ),
       },
       { title: 'Name', dataIndex: 'name' },
+      {
+        title: 'Display name',
+        dataIndex: 'display_name',
+        width: 140,
+        render: (v, r) => v || r?.name || '—',
+      },
+      {
+        title: 'Plan',
+        dataIndex: 'plan_code',
+        width: 120,
+        render: (v, r) => {
+          if (!v) return '—';
+          const tier = Number(r?.plan_tier || 0);
+          const group = r?.plan_group ? ` / ${r.plan_group}` : '';
+          return `${v} · T${tier}${group}`;
+        },
+      },
       { title: 'Description', dataIndex: 'description' },
       {
         title: 'Monthly (CNY)',
@@ -856,6 +1007,7 @@ export const usePoolsData = () => {
         dataIndex: 'status',
         render: (value) => (Number(value) === 1 ? 'Enabled' : 'Disabled'),
       },
+      { title: 'Order', dataIndex: 'display_order', width: 72 },
       {
         title: 'Actions',
         dataIndex: 'operate',
@@ -921,6 +1073,45 @@ export const usePoolsData = () => {
         title: 'Fen',
         dataIndex: 'amount_total_fen',
         width: 80,
+      },
+      {
+        title: 'Period',
+        dataIndex: 'period_months',
+        width: 72,
+        render: (v) => {
+          const n = Number(v) || 0;
+          return n > 0 ? `${n}m` : '1m';
+        },
+      },
+      {
+        title: 'Discount',
+        dataIndex: 'discount_ratio_bp',
+        width: 84,
+        render: (v) => {
+          const n = Number(v) || 0;
+          if (n <= 0 || n === 10000) return '—';
+          return `${(n / 100).toFixed(0)}%`;
+        },
+      },
+      {
+        title: 'Upgrade',
+        dataIndex: 'is_upgrade',
+        width: 108,
+        render: (v, r) =>
+          v ? (
+            <Tag color='blue'>from #{r?.upgraded_from_pool_id || 0}</Tag>
+          ) : (
+            '—'
+          ),
+      },
+      {
+        title: 'Credit',
+        dataIndex: 'credit_seconds_granted',
+        width: 84,
+        render: (v) => {
+          const n = Number(v) || 0;
+          return n > 0 ? `${Math.floor(n / 86400)}d` : '—';
+        },
       },
       { title: 'Status', dataIndex: 'status', width: 100 },
       {
@@ -1053,6 +1244,61 @@ export const usePoolsData = () => {
       },
     ],
     [channelPage, loadPoolChannels, t],
+  );
+
+  const periodOptionColumns = useMemo(
+    () => [
+      { title: 'ID', dataIndex: 'id', width: 72 },
+      { title: 'Pool ID', dataIndex: 'pool_id', width: 88 },
+      { title: 'Months', dataIndex: 'period_months', width: 88 },
+      {
+        title: 'Discount',
+        dataIndex: 'discount_ratio_bp',
+        width: 110,
+        render: (v) => {
+          const n = Number(v) || 0;
+          if (n <= 0) return '—';
+          return `${(n / 100).toFixed(2)}%`;
+        },
+      },
+      {
+        title: 'Enabled',
+        dataIndex: 'enabled',
+        width: 96,
+        render: boolTag,
+      },
+      { title: 'Sort', dataIndex: 'sort_order', width: 72 },
+      {
+        title: 'Actions',
+        dataIndex: 'operate',
+        render: (_, record) => (
+          <Space>
+            <Button
+              size='small'
+              type='tertiary'
+              onClick={() => openEditPeriodOption(record)}
+            >
+              Edit
+            </Button>
+            <Button
+              size='small'
+              type='danger'
+              onClick={() =>
+                confirmDeleteItem(
+                  '/api/pool/period_option',
+                  record.id,
+                  () => loadPeriodOptions(periodOptionPage),
+                  t('Failed to delete period option'),
+                )
+              }
+            >
+              Delete
+            </Button>
+          </Space>
+        ),
+      },
+    ],
+    [loadPeriodOptions, periodOptionPage, t],
   );
 
   const policyColumns = useMemo(
@@ -1194,6 +1440,23 @@ export const usePoolsData = () => {
     clearChannelFilters,
     resetChannelForm,
     savePoolChannel,
+
+    periodOptionItems,
+    periodOptionTotal,
+    periodOptionPage,
+    periodOptionLoading,
+    periodOptionForm,
+    setPeriodOptionForm,
+    showPeriodOptionForm,
+    openCreatePeriodOption,
+    closePeriodOptionForm,
+    periodOptionColumns,
+    periodOptionPoolFilter,
+    setPeriodOptionPoolFilter,
+    clearPeriodOptionFilters,
+    resetPeriodOptionForm,
+    loadPeriodOptions,
+    savePeriodOption,
 
     policyItems,
     policyTotal,

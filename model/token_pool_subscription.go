@@ -20,13 +20,23 @@ type TokenPoolSubscriptionOrder struct {
 	AmountTotalFen       int64   `json:"amount_total_fen" gorm:"bigint"`
 	Currency             string  `json:"currency" gorm:"type:varchar(8);default:'CNY'"`
 	BillingPeriodSeconds int64   `json:"billing_period_seconds" gorm:"bigint"`
-	TradeNo              string  `json:"trade_no" gorm:"type:varchar(64);uniqueIndex"`
-	CodeUrl              string  `json:"-" gorm:"type:text"`
-	WechatTransactionId  string  `json:"wechat_transaction_id" gorm:"type:varchar(64);default:''"`
-	Status               string  `json:"status" gorm:"type:varchar(32);index"`
-	RawNotify            string  `json:"raw_notify" gorm:"type:text"`
-	CreateTime           int64   `json:"create_time" gorm:"bigint;index"`
-	CompleteTime         int64   `json:"complete_time" gorm:"bigint"`
+	// PeriodMonths is the number of billing months this order pays for (1 = single-month, matches legacy behavior).
+	PeriodMonths int `json:"period_months" gorm:"default:1"`
+	// DiscountRatioBp is the discount ratio in basis points (10000 = 100% = no discount).
+	DiscountRatioBp int `json:"discount_ratio_bp" gorm:"default:10000"`
+	// IsUpgrade indicates this order carries an upgrade payload (UpgradedFromPoolId + CreditSecondsGranted are meaningful).
+	IsUpgrade bool `json:"is_upgrade" gorm:"default:false;index"`
+	// UpgradedFromPoolId is the pool_id being upgraded away from (Lite side), only when IsUpgrade = true.
+	UpgradedFromPoolId int `json:"upgraded_from_pool_id" gorm:"default:0;index"`
+	// CreditSecondsGranted is the additional paid-window seconds credited from the old plan's remaining time.
+	CreditSecondsGranted int64  `json:"credit_seconds_granted" gorm:"bigint;default:0"`
+	TradeNo              string `json:"trade_no" gorm:"type:varchar(64);uniqueIndex"`
+	CodeUrl              string `json:"-" gorm:"type:text"`
+	WechatTransactionId  string `json:"wechat_transaction_id" gorm:"type:varchar(64);default:''"`
+	Status               string `json:"status" gorm:"type:varchar(32);index"`
+	RawNotify            string `json:"raw_notify" gorm:"type:text"`
+	CreateTime           int64  `json:"create_time" gorm:"bigint;index"`
+	CompleteTime         int64  `json:"complete_time" gorm:"bigint"`
 }
 
 func (TokenPoolSubscriptionOrder) TableName() string {
@@ -262,11 +272,19 @@ func CompleteTokenPoolSubscriptionFromNotify(tradeNo, wechatTxnId, rawJSON strin
 		}).Error; err != nil {
 			return err
 		}
-		return upsertTokenPoolSubscriptionTx(tx, order.TokenId, order.PoolId, order.Id, order.BillingPeriodSeconds, now)
+		periodMonths := order.PeriodMonths
+		if periodMonths <= 0 {
+			periodMonths = 1
+		}
+		totalPeriodSeconds := order.BillingPeriodSeconds * int64(periodMonths)
+		if order.IsUpgrade && order.UpgradedFromPoolId > 0 && order.UpgradedFromPoolId != order.PoolId {
+			return upgradeTokenPoolSubscriptionTx(tx, order.TokenId, order.UpgradedFromPoolId, order.PoolId, order.Id, totalPeriodSeconds, order.CreditSecondsGranted, now)
+		}
+		return upsertTokenPoolSubscriptionTx(tx, order.TokenId, order.PoolId, order.Id, totalPeriodSeconds, now, 0)
 	})
 }
 
-func upsertTokenPoolSubscriptionTx(tx *gorm.DB, tokenId, poolId, orderId int, periodSeconds int64, now int64) error {
+func upsertTokenPoolSubscriptionTx(tx *gorm.DB, tokenId, poolId, orderId int, periodSeconds int64, now int64, extraCreditSeconds int64) error {
 	var sub TokenPoolSubscription
 	err := tx.Where("token_id = ? AND pool_id = ?", tokenId, poolId).First(&sub).Error
 	base := now
@@ -277,7 +295,11 @@ func upsertTokenPoolSubscriptionTx(tx *gorm.DB, tokenId, poolId, orderId int, pe
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	newEnd := periodEndAtBillingEOD(base, periodSeconds)
+	effectiveSeconds := periodSeconds
+	if extraCreditSeconds > 0 {
+		effectiveSeconds += extraCreditSeconds
+	}
+	newEnd := periodEndAtBillingEOD(base, effectiveSeconds)
 	if sub.Id == 0 {
 		sub = TokenPoolSubscription{
 			TokenId:     tokenId,
@@ -292,6 +314,35 @@ func upsertTokenPoolSubscriptionTx(tx *gorm.DB, tokenId, poolId, orderId int, pe
 		"period_end":    newEnd,
 		"last_order_id": orderId,
 	}).Error
+}
+
+// upgradeTokenPoolSubscriptionTx closes the old plan-group subscription (period_end = now - 1)
+// and upserts the new pool's subscription with the paid period plus prorated credit seconds.
+func upgradeTokenPoolSubscriptionTx(tx *gorm.DB, tokenId, fromPoolId, toPoolId, orderId int, periodSeconds int64, creditSeconds int64, now int64) error {
+	if tokenId <= 0 || fromPoolId <= 0 || toPoolId <= 0 || fromPoolId == toPoolId {
+		return fmt.Errorf("invalid upgrade parameters")
+	}
+	var oldSub TokenPoolSubscription
+	err := tx.Where("token_id = ? AND pool_id = ?", tokenId, fromPoolId).First(&oldSub).Error
+	if err == nil {
+		// Only shorten the window when the old one is still active; leave already-expired rows alone.
+		if oldSub.PeriodEnd >= now {
+			if err := tx.Model(&oldSub).Updates(map[string]interface{}{
+				"period_end": now - 1,
+			}).Error; err != nil {
+				return err
+			}
+		}
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	return upsertTokenPoolSubscriptionTx(tx, tokenId, toPoolId, orderId, periodSeconds, now, creditSeconds)
+}
+
+// UpgradeTokenPoolSubscriptionTx is the exported wrapper for admin/manual paths that need to
+// close an old plan-group subscription and open a new one atomically.
+func UpgradeTokenPoolSubscriptionTx(tx *gorm.DB, tokenId, fromPoolId, toPoolId, orderId int, periodSeconds int64, creditSeconds int64, now int64) error {
+	return upgradeTokenPoolSubscriptionTx(tx, tokenId, fromPoolId, toPoolId, orderId, periodSeconds, creditSeconds, now)
 }
 
 func ListTokenPoolSubscriptionOrders(offset, limit int) ([]*TokenPoolSubscriptionOrder, int64, error) {

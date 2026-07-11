@@ -39,6 +39,7 @@ func setupTokenPoolSubscriptionCheckoutTestDB(t *testing.T) *gorm.DB {
 		&model.Token{},
 		&model.Pool{},
 		&model.PoolBinding{},
+		&model.PoolPeriodOption{},
 		&model.TokenPoolSubscriptionOrder{},
 		&model.TokenPoolSubscription{},
 	))

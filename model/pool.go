@@ -36,8 +36,20 @@ type Pool struct {
 	MonthlyPriceCny      float64 `json:"monthly_price_cny" gorm:"default:0"` // 0 = no native WeChat subscription gate; SQLite=real, MySQL/PG=decimal(10,2) via migratePoolDecimalMonthlyPrice
 	BillingCurrency      string  `json:"billing_currency" gorm:"size:8;default:CNY"`
 	BillingPeriodSeconds int64   `json:"billing_period_seconds" gorm:"default:2592000"` // default 30 days
-	CreatedAt            int64   `json:"created_at" gorm:"bigint;index"`
-	UpdatedAt            int64   `json:"updated_at" gorm:"bigint"`
+	// PlanCode is the machine-readable identifier for this pool's plan tier (e.g. "lite", "pro").
+	// Empty when the pool is not part of a plan tier lineup.
+	PlanCode string `json:"plan_code" gorm:"type:varchar(32);default:'';index"`
+	// PlanGroup groups tiered pools that can upgrade/downgrade to one another (e.g. "standard").
+	// Pools in the same group must share the same billing period unit but may differ in price.
+	PlanGroup string `json:"plan_group" gorm:"type:varchar(32);default:'';index"`
+	// PlanTier orders tiers within a plan_group; higher = more premium (e.g. Lite=10, Pro=20).
+	PlanTier int `json:"plan_tier" gorm:"default:0;index"`
+	// DisplayName is a human-friendly name shown to end users (falls back to Name when empty).
+	DisplayName string `json:"display_name" gorm:"type:varchar(128);default:''"`
+	// DisplayOrder controls list ordering on the customer UI (ascending).
+	DisplayOrder int   `json:"display_order" gorm:"default:0"`
+	CreatedAt    int64 `json:"created_at" gorm:"bigint;index"`
+	UpdatedAt    int64 `json:"updated_at" gorm:"bigint"`
 }
 
 type PoolChannel struct {
@@ -77,6 +89,20 @@ type PoolBinding struct {
 	Enabled      bool   `json:"enabled" gorm:"default:true;index"`
 	CreatedAt    int64  `json:"created_at" gorm:"bigint;index"`
 	UpdatedAt    int64  `json:"updated_at" gorm:"bigint"`
+}
+
+// PoolPeriodOption is a purchasable multi-month billing period for a Pool with a discount ratio.
+// discount_ratio_bp is in basis points relative to 10000: 10000 = 100% (no discount), 9000 = 90%.
+// The order amount is: monthly_price_cny * period_months * discount_ratio_bp / 10000 (rounded to fen).
+type PoolPeriodOption struct {
+	Id              int   `json:"id"`
+	PoolId          int   `json:"pool_id" gorm:"index:idx_pool_period_opt,priority:1;uniqueIndex:uk_pool_period_opt,priority:1"`
+	PeriodMonths    int   `json:"period_months" gorm:"index:idx_pool_period_opt,priority:2;uniqueIndex:uk_pool_period_opt,priority:2"`
+	DiscountRatioBp int   `json:"discount_ratio_bp" gorm:"default:10000"`
+	Enabled         bool  `json:"enabled" gorm:"default:true;index"`
+	SortOrder       int   `json:"sort_order" gorm:"default:0"`
+	CreatedAt       int64 `json:"created_at" gorm:"bigint;index"`
+	UpdatedAt       int64 `json:"updated_at" gorm:"bigint"`
 }
 
 func (p *Pool) BeforeCreate(tx *gorm.DB) error {
@@ -134,6 +160,25 @@ func (p *PoolBinding) BeforeCreate(tx *gorm.DB) error {
 
 func (p *PoolBinding) BeforeUpdate(tx *gorm.DB) error {
 	p.UpdatedAt = common.GetTimestamp()
+	return nil
+}
+
+func (p *PoolPeriodOption) BeforeCreate(tx *gorm.DB) error {
+	if p.CreatedAt == 0 {
+		p.CreatedAt = common.GetTimestamp()
+	}
+	p.UpdatedAt = common.GetTimestamp()
+	if p.DiscountRatioBp <= 0 {
+		p.DiscountRatioBp = 10000
+	}
+	return nil
+}
+
+func (p *PoolPeriodOption) BeforeUpdate(tx *gorm.DB) error {
+	p.UpdatedAt = common.GetTimestamp()
+	if p.DiscountRatioBp <= 0 {
+		p.DiscountRatioBp = 10000
+	}
 	return nil
 }
 
@@ -323,6 +368,11 @@ func UpdatePool(pool *Pool) error {
 		"monthly_price_cny":      pool.MonthlyPriceCny,
 		"billing_currency":       pool.BillingCurrency,
 		"billing_period_seconds": pool.BillingPeriodSeconds,
+		"plan_code":              pool.PlanCode,
+		"plan_group":             pool.PlanGroup,
+		"plan_tier":              pool.PlanTier,
+		"display_name":           pool.DisplayName,
+		"display_order":          pool.DisplayOrder,
 		"updated_at":             common.GetTimestamp(),
 	}).Error
 }
@@ -658,4 +708,90 @@ func DeletePoolPolicy(id int) error {
 		return errors.New("invalid pool policy id")
 	}
 	return DB.Where("id = ?", id).Delete(&PoolQuotaPolicy{}).Error
+}
+
+// GetPoolPeriodOptions returns enabled billing period options for a pool, ordered by period_months asc.
+// When no rows exist, callers should treat this as a single "1 month, no discount" fallback.
+func GetPoolPeriodOptions(poolId int) ([]*PoolPeriodOption, error) {
+	if poolId <= 0 {
+		return nil, errors.New("invalid pool id")
+	}
+	items := make([]*PoolPeriodOption, 0)
+	err := DB.Where("pool_id = ? AND enabled = ?", poolId, true).
+		Order("period_months ASC, id ASC").
+		Find(&items).Error
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// ListPoolPeriodOptions returns all period options (including disabled) for admin surfaces.
+func ListPoolPeriodOptions(poolId int) ([]*PoolPeriodOption, error) {
+	items := make([]*PoolPeriodOption, 0)
+	q := DB.Model(&PoolPeriodOption{})
+	if poolId > 0 {
+		q = q.Where("pool_id = ?", poolId)
+	}
+	err := q.Order("pool_id ASC, period_months ASC").Find(&items).Error
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func CreatePoolPeriodOption(item *PoolPeriodOption) error {
+	if item == nil {
+		return errors.New("pool period option is nil")
+	}
+	if item.PoolId <= 0 || item.PeriodMonths <= 0 {
+		return errors.New("pool_id and period_months required")
+	}
+	if item.DiscountRatioBp <= 0 {
+		item.DiscountRatioBp = 10000
+	}
+	return DB.Create(item).Error
+}
+
+func UpdatePoolPeriodOption(item *PoolPeriodOption) error {
+	if item == nil || item.Id <= 0 {
+		return errors.New("invalid pool period option")
+	}
+	if item.PeriodMonths <= 0 {
+		return errors.New("period_months must be positive")
+	}
+	if item.DiscountRatioBp <= 0 {
+		item.DiscountRatioBp = 10000
+	}
+	return DB.Model(&PoolPeriodOption{}).Where("id = ?", item.Id).Updates(map[string]interface{}{
+		"pool_id":           item.PoolId,
+		"period_months":     item.PeriodMonths,
+		"discount_ratio_bp": item.DiscountRatioBp,
+		"enabled":           item.Enabled,
+		"sort_order":        item.SortOrder,
+		"updated_at":        common.GetTimestamp(),
+	}).Error
+}
+
+func DeletePoolPeriodOption(id int) error {
+	if id <= 0 {
+		return errors.New("invalid pool period option id")
+	}
+	return DB.Where("id = ?", id).Delete(&PoolPeriodOption{}).Error
+}
+
+// GetPoolPlanGroupPeers returns pools in the same plan_group as the given pool (excluding itself),
+// ordered by plan_tier ASC. Only enabled pools are returned. Empty when the pool has no plan_group.
+func GetPoolPlanGroupPeers(pool *Pool) ([]*Pool, error) {
+	if pool == nil || strings.TrimSpace(pool.PlanGroup) == "" {
+		return nil, nil
+	}
+	peers := make([]*Pool, 0)
+	err := DB.Where("plan_group = ? AND id <> ? AND status = ?", pool.PlanGroup, pool.Id, PoolStatusEnabled).
+		Order("plan_tier ASC, display_order ASC, id ASC").
+		Find(&peers).Error
+	if err != nil {
+		return nil, err
+	}
+	return peers, nil
 }

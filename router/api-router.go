@@ -273,12 +273,14 @@ func SetApiRouter(router *gin.Engine) {
 			usageTokenCheckout.Use(middleware.CriticalRateLimit(), middleware.TokenAuth(), middleware.CriticalRateLimit())
 			{
 				usageTokenCheckout.POST("/pool/subscription/wechat/checkout", controller.RequestTokenPoolSubscriptionWechatCheckout)
+				usageTokenCheckout.POST("/pool/subscription/quote", controller.QuoteTokenPoolSubscription)
 			}
 			tokenUsageRoute := usageRoute.Group("/token")
 			tokenUsageRoute.Use(middleware.TokenAuthReadOnly())
 			{
 				tokenUsageRoute.GET("/", controller.GetTokenUsage)
 				tokenUsageRoute.GET("/pool", controller.GetTokenPoolUsageSelf)
+				tokenUsageRoute.GET("/pool/plans", controller.GetTokenPoolPlans)
 				tokenUsageRoute.GET("/pool/subscription/order", controller.GetTokenPoolSubscriptionOrderSelf)
 			}
 		}
@@ -309,6 +311,11 @@ func SetApiRouter(router *gin.Engine) {
 			poolRoute.GET("/subscription_orders", controller.GetPoolSubscriptionOrders)
 			poolRoute.GET("/token_subscriptions", controller.GetTokenPoolSubscriptions)
 			poolRoute.PUT("/token_subscription", controller.PutTokenPoolSubscription)
+
+			poolRoute.GET("/period_option", controller.GetPoolPeriodOptionsAdmin)
+			poolRoute.POST("/period_option", controller.CreatePoolPeriodOptionAdmin)
+			poolRoute.PUT("/period_option", controller.UpdatePoolPeriodOptionAdmin)
+			poolRoute.DELETE("/period_option/:id", controller.DeletePoolPeriodOptionAdmin)
 		}
 
 		poolSelfRoute := apiRouter.Group("/pool")
