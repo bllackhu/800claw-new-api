@@ -128,6 +128,7 @@ func InitEnv() {
 	PoolEnabled = GetEnvOrDefaultBool("POOL_ENABLED", false)
 	PoolQuotaEnabled = GetEnvOrDefaultBool("POOL_QUOTA_ENABLED", false)
 	PoolRollingWindowEnabled = GetEnvOrDefaultBool("POOL_ROLLING_WINDOW_ENABLED", false)
+	PoolFixedWindowEnabled = GetEnvOrDefaultBool("POOL_FIXED_WINDOW_ENABLED", false)
 	initConstantEnv()
 }
 

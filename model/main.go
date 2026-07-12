@@ -257,6 +257,9 @@ func migrateDB() error {
 	if err := migratePoolSQLiteDecimalMonthlyPrice(); err != nil {
 		return err
 	}
+	if err := migratePoolRateLimitMode(); err != nil {
+		return err
+	}
 
 	err := DB.AutoMigrate(
 		&Channel{},
@@ -518,6 +521,30 @@ func migratePoolSQLiteDecimalMonthlyPrice() error {
 		}
 		return tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS `idx_pools_name` ON `pools`(`name`)").Error
 	})
+}
+
+// migratePoolRateLimitMode adds the rate_limit_mode column to the pools table.
+// Supports all three databases (SQLite, MySQL, PostgreSQL).
+func migratePoolRateLimitMode() error {
+	const tableName = "pools"
+	if !DB.Migrator().HasTable(tableName) {
+		return nil
+	}
+	switch common.UsingPostgreSQL {
+	case true:
+		if DB.Migrator().HasColumn(&Pool{}, "rate_limit_mode") {
+			return nil
+		}
+		if err := DB.Exec(`ALTER TABLE pools ADD COLUMN rate_limit_mode VARCHAR(16) DEFAULT 'sliding'`).Error; err != nil {
+			return err
+		}
+		return DB.Exec(`CREATE INDEX IF NOT EXISTS idx_pools_rate_limit_mode ON pools (rate_limit_mode)`).Error
+	default:
+		if DB.Migrator().HasColumn(&Pool{}, "rate_limit_mode") {
+			return nil
+		}
+		return DB.Exec("ALTER TABLE pools ADD COLUMN rate_limit_mode VARCHAR(16) DEFAULT 'sliding'").Error
+	}
 }
 
 // migratePoolDecimalMonthlyPrice keeps monthly_price_cny as decimal(10,2) on MySQL/PostgreSQL.

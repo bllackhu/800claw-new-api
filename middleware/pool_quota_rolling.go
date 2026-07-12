@@ -8,11 +8,26 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/common/limiter"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/go-redis/redis/v8"
 	"github.com/gin-gonic/gin"
 )
+
+var fixedWindowScriptSHA string
+
+func InitFixedWindowScript() {
+	if !common.RedisEnabled || common.RDB == nil {
+		return
+	}
+	sha, err := common.RDB.ScriptLoad(context.Background(), limiter.FixedWindowEnforceScript).Result()
+	if err != nil {
+		common.SysLog(fmt.Sprintf("Failed to load fixed window enforce script: %v", err))
+		return
+	}
+	fixedWindowScriptSHA = sha
+}
 
 type poolQuotaPolicyLoader func(poolId int, metric string, scopeType string) ([]*model.PoolQuotaPolicy, error)
 
@@ -105,40 +120,98 @@ func PoolRollingQuota() func(c *gin.Context) {
 			return
 		}
 
-		requestId := c.GetString(common.RequestIdKey)
-		if requestId == "" {
-			requestId = fmt.Sprintf("%d-%s", time.Now().UnixNano(), common.GetRandomString(8))
+		// Determine which mode to use for this request
+		pool, _ := model.GetPoolById(poolId)
+		useFixed := common.PoolFixedWindowEnabled &&
+			pool != nil &&
+			pool.RateLimitMode == model.PoolRateLimitModeFixed
+
+		if useFixed {
+			enforceFixedWindow(c, validPolicies, scopeKey)
+		} else {
+			enforceSlidingWindow(c, poolId, validPolicies, scopeKey, maxWindowSeconds)
 		}
+	}
+}
 
-		redisKey := model.PoolRollingRequestRedisKey(poolId, scopeKey)
-		nowMs := time.Now().UnixMilli()
-		ctx := context.Background()
+func enforceSlidingWindow(c *gin.Context, poolId int, validPolicies []*model.PoolQuotaPolicy, scopeKey string, maxWindowSeconds int) {
+	requestId := c.GetString(common.RequestIdKey)
+	if requestId == "" {
+		requestId = fmt.Sprintf("%d-%s", time.Now().UnixNano(), common.GetRandomString(8))
+	}
 
-		if err = trimPoolWindowEvents(ctx, redisKey, maxWindowSeconds, nowMs); err != nil {
-			abortWithOpenAiMessage(c, http.StatusInternalServerError, "failed to trim pool quota events")
+	redisKey := model.PoolRollingRequestRedisKey(poolId, scopeKey)
+	nowMs := time.Now().UnixMilli()
+	ctx := context.Background()
+
+	if err := trimPoolWindowEvents(ctx, redisKey, maxWindowSeconds, nowMs); err != nil {
+		abortWithOpenAiMessage(c, http.StatusInternalServerError, "failed to trim pool quota events")
+		return
+	}
+
+	for _, p := range validPolicies {
+		usedCount, countErr := countRollingWindowEvents(ctx, redisKey, p.WindowSeconds, nowMs)
+		if countErr != nil {
+			abortWithOpenAiMessage(c, http.StatusInternalServerError, "failed to count pool quota events")
 			return
 		}
-
-		for _, p := range validPolicies {
-			usedCount, countErr := countRollingWindowEvents(ctx, redisKey, p.WindowSeconds, nowMs)
-			if countErr != nil {
-				abortWithOpenAiMessage(c, http.StatusInternalServerError, "failed to count pool quota events")
-				return
-			}
-			if usedCount >= int64(p.LimitCount) {
-				abortWithOpenAiMessage(c, http.StatusTooManyRequests, fmt.Sprintf("pool request limit exceeded: %d requests in %d seconds", p.LimitCount, p.WindowSeconds))
-				return
-			}
-		}
-
-		if err = reservePoolRequestEvent(ctx, redisKey, requestId, nowMs, maxWindowSeconds); err != nil {
-			abortWithOpenAiMessage(c, http.StatusInternalServerError, "failed to reserve pool quota event")
+		if usedCount >= int64(p.LimitCount) {
+			abortWithOpenAiMessage(c, http.StatusTooManyRequests, fmt.Sprintf("pool request limit exceeded: %d requests in %d seconds", p.LimitCount, p.WindowSeconds))
 			return
 		}
+	}
 
-		c.Next()
-		if c.Writer != nil && c.Writer.Status() >= http.StatusBadRequest {
-			_ = common.RDB.ZRem(ctx, redisKey, requestId).Err()
+	if err := reservePoolRequestEvent(ctx, redisKey, requestId, nowMs, maxWindowSeconds); err != nil {
+		abortWithOpenAiMessage(c, http.StatusInternalServerError, "failed to reserve pool quota event")
+		return
+	}
+
+	c.Next()
+	if c.Writer != nil && c.Writer.Status() >= http.StatusBadRequest {
+		_ = common.RDB.ZRem(ctx, redisKey, requestId).Err()
+	}
+}
+
+func enforceFixedWindow(c *gin.Context, policies []*model.PoolQuotaPolicy, scopeKey string) {
+	ctx := context.Background()
+	nowUnix := time.Now().Unix()
+
+	// Build keys and limits for Lua script
+	keys := make([]string, 0, len(policies))
+	limits := make([]string, 0, len(policies))
+	ttls := make([]string, 0, len(policies))
+
+	for _, p := range policies {
+		key := model.FixedWindowCounterKey(scopeKey, p.WindowSeconds, nowUnix)
+		keys = append(keys, key)
+		limits = append(limits, strconv.Itoa(p.LimitCount))
+		ttls = append(ttls, strconv.Itoa(p.WindowSeconds))
+	}
+
+	// Atomic enforcement via Lua script
+	argv := append(limits, ttls...)
+	interfaceArgs := make([]interface{}, len(argv))
+	for i, v := range argv {
+		interfaceArgs[i] = v
+	}
+	result, err := common.RDB.EvalSha(ctx, fixedWindowScriptSHA, keys, interfaceArgs...).Int()
+	if err != nil {
+		common.SysLog(fmt.Sprintf("fixed window enforce script error: %v", err))
+		abortWithOpenAiMessage(c, http.StatusInternalServerError, "pool fixed window enforcement failed")
+		return
+	}
+	if result == 0 {
+		abortWithOpenAiMessage(c, http.StatusTooManyRequests, "pool request limit exceeded")
+		return
+	}
+
+	// Store keys for potential rollback on failed request
+	c.Set("pool_fixed_window_keys", keys)
+	c.Next()
+
+	if c.Writer != nil && c.Writer.Status() >= http.StatusBadRequest {
+		for _, k := range keys {
+			_ = common.RDB.Decr(ctx, k).Err()
 		}
 	}
 }

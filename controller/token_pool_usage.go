@@ -1,8 +1,10 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +42,9 @@ type TokenPoolUsageWindow struct {
 	Count         *int64 `json:"count,omitempty"`
 	LimitCount    *int64 `json:"limit_count,omitempty"`
 	Reason        string `json:"reason,omitempty"`
+	// Fixed-window fields (only present when pool.rate_limit_mode = "fixed")
+	ResetAt        *int64 `json:"reset_at,omitempty"`
+	ResetInSeconds *int64 `json:"reset_in_seconds,omitempty"`
 }
 
 type TokenPoolUsageItem struct {
@@ -50,6 +55,7 @@ type TokenPoolUsageItem struct {
 	DataSource             string                           `json:"data_source"`
 	RetentionWindowSeconds int                              `json:"retention_window_seconds,omitempty"`
 	TokenScopeEnabled      bool                             `json:"token_scope_enabled"`
+	RateLimitMode          string                           `json:"rate_limit_mode,omitempty"`
 	Usage                  map[string]*TokenPoolUsageWindow `json:"usage"`
 	LlmTokenUsage          *TokenPoolLLMTokenUsage          `json:"llm_token_usage,omitempty"`
 }
@@ -202,9 +208,10 @@ func buildTokenPoolLLMTokenUsage(token *model.Token, windows []string, windowSec
 }
 
 type tokenPoolUsageBuilderDeps struct {
-	resolvePool          func(token *model.Token) (*model.Pool, error)
-	loadPolicies         func(poolId int, scopeType string) ([]*model.PoolQuotaPolicy, error)
-	countRequestsByToken func(tokenId int, windowSeconds int) (int64, error)
+	resolvePool                func(token *model.Token) (*model.Pool, error)
+	loadPolicies               func(poolId int, scopeType string) ([]*model.PoolQuotaPolicy, error)
+	countRequestsByToken       func(tokenId int, windowSeconds int) (int64, error)
+	countFixedRequestsByToken  func(tokenId int, windowSeconds int) (int64, error)
 }
 
 func normalizeTokenPoolUsageWindows(input []string) ([]string, map[string]int, error) {
@@ -279,6 +286,10 @@ func buildTokenPoolUsageItem(token *model.Token, windows []string, windowSeconds
 			since := time.Now().Unix() - int64(windowSeconds)
 			return model.SumTokenLLMUsageBucketRequestCountByTokenSince(tokenId, since)
 		},
+		countFixedRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+			scopeKey := "token:" + strconv.Itoa(tokenId)
+			return model.GetFixedWindowCount(context.Background(), scopeKey, windowSeconds, time.Now().Unix())
+		},
 	}
 	return buildTokenPoolUsageItemWithDeps(token, windows, windowSeconds, deps)
 }
@@ -301,6 +312,7 @@ func buildTokenPoolUsageItemWithDeps(token *model.Token, windows []string, windo
 	}
 	item.PoolId = pool.Id
 	item.PoolName = poolDisplayName(pool)
+	item.RateLimitMode = pool.RateLimitMode
 
 	tokenPolicies, err := deps.loadPolicies(pool.Id, model.PoolQuotaScopeToken)
 	if err != nil {
@@ -351,12 +363,28 @@ func buildTokenPoolUsageItemWithDeps(token *model.Token, windows []string, windo
 			item.Usage[window] = result
 			continue
 		}
-		count, countErr := deps.countRequestsByToken(token.Id, result.WindowSeconds)
+		var (
+			count    int64
+			countErr error
+		)
+		if pool.RateLimitMode == model.PoolRateLimitModeFixed && common.PoolFixedWindowEnabled && deps.countFixedRequestsByToken != nil {
+			count, countErr = deps.countFixedRequestsByToken(token.Id, result.WindowSeconds)
+		} else {
+			count, countErr = deps.countRequestsByToken(token.Id, result.WindowSeconds)
+		}
 		if countErr != nil {
 			return nil, countErr
 		}
 		result.Available = true
 		result.Count = &count
+		// Populate reset time fields for fixed-window pools
+		if pool.RateLimitMode == model.PoolRateLimitModeFixed {
+			nowUnix := time.Now().Unix()
+			resetAt := model.FixedWindowResetAt(nowUnix, result.WindowSeconds)
+			resetIn := model.FixedWindowResetInSeconds(nowUnix, result.WindowSeconds)
+			result.ResetAt = &resetAt
+			result.ResetInSeconds = &resetIn
+		}
 		item.Usage[window] = result
 	}
 	return item, nil

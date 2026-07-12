@@ -23,6 +23,9 @@ const PoolFormSideSheet = ({
 }) => {
   const isEdit = Number(formData?.id || 0) > 0;
 
+  const updateField = (field) => (value) =>
+    setFormData((prev) => ({ ...prev, [field]: value }));
+
   return (
     <SideSheet
       visible={visible}
@@ -54,113 +57,150 @@ const PoolFormSideSheet = ({
       width={560}
     >
       <div className='p-4 space-y-3'>
-        <Input
-          placeholder='name'
-          value={formData.name}
-          onChange={(value) => setFormData((prev) => ({ ...prev, name: value }))}
-        />
-        <Input
-          placeholder='description'
-          value={formData.description}
-          onChange={(value) =>
-            setFormData((prev) => ({ ...prev, description: value }))
-          }
-        />
-        <Select
-          value={String(formData.status)}
-          onChange={(value) =>
-            setFormData((prev) => ({ ...prev, status: Number(value) }))
-          }
-        >
-          <Select.Option value='1'>Enabled</Select.Option>
-          <Select.Option value='2'>Disabled</Select.Option>
-        </Select>
-        <InputNumber
-          placeholder='monthly_price_cny (0 = no paid pool gate, decimals OK e.g. 1.50)'
-          style={{ width: '100%' }}
-          value={Number(formData.monthly_price_cny_input ?? formData.monthly_price_cny ?? 0)}
-          min={0}
-          step={0.01}
-          precision={2}
-          hideButtons
-          onChange={(value) => {
-            const n = typeof value === 'number' && Number.isFinite(value) ? value : 0;
-            setFormData((prev) => ({
-              ...prev,
-              monthly_price_cny: n,
-              monthly_price_cny_input: String(n),
-            }));
-          }}
-        />
-        <Input
-          placeholder='billing_currency (e.g. CNY)'
-          value={formData.billing_currency || 'CNY'}
-          onChange={(value) =>
-            setFormData((prev) => ({ ...prev, billing_currency: value }))
-          }
-        />
-        <Input
-          placeholder='billing_period_seconds (default 2592000 = 30d)'
-          value={String(formData.billing_period_seconds ?? 30 * 24 * 3600)}
-          onChange={(value) =>
-            setFormData((prev) => ({
-              ...prev,
-              billing_period_seconds:
-                value === '' ? 30 * 24 * 3600 : parseInt(value, 10) || 30 * 24 * 3600,
-            }))
-          }
-        />
+        <div>
+          <Text type='tertiary' size='small' className='block mb-1'>Name</Text>
+          <Input
+            placeholder='name'
+            value={formData.name}
+            onChange={updateField('name')}
+          />
+        </div>
+        <div>
+          <Text type='tertiary' size='small' className='block mb-1'>Description</Text>
+          <Input
+            placeholder='description'
+            value={formData.description}
+            onChange={updateField('description')}
+          />
+        </div>
+        <div>
+          <Text type='tertiary' size='small' className='block mb-1'>Status</Text>
+          <Select
+            value={String(formData.status)}
+            onChange={(value) =>
+              setFormData((prev) => ({ ...prev, status: Number(value) }))
+            }
+          >
+            <Select.Option value='1'>Enabled</Select.Option>
+            <Select.Option value='2'>Disabled</Select.Option>
+          </Select>
+        </div>
+        <div>
+          <Text type='tertiary' size='small' className='block mb-1'>Monthly Price (CNY)</Text>
+          <InputNumber
+            placeholder='0 = no paid pool gate, decimals OK e.g. 1.50'
+            style={{ width: '100%' }}
+            value={Number(formData.monthly_price_cny_input ?? formData.monthly_price_cny ?? 0)}
+            min={0}
+            step={0.01}
+            precision={2}
+            hideButtons
+            onChange={(value) => {
+              const n = typeof value === 'number' && Number.isFinite(value) ? value : 0;
+              setFormData((prev) => ({
+                ...prev,
+                monthly_price_cny: n,
+                monthly_price_cny_input: String(n),
+              }));
+            }}
+          />
+        </div>
+        <div>
+          <Text type='tertiary' size='small' className='block mb-1'>Billing Currency</Text>
+          <Input
+            placeholder='e.g. CNY'
+            value={formData.billing_currency || 'CNY'}
+            onChange={updateField('billing_currency')}
+          />
+        </div>
+        <div>
+          <Text type='tertiary' size='small' className='block mb-1'>Billing Period (seconds)</Text>
+          <Input
+            placeholder='default 2592000 = 30d'
+            value={String(formData.billing_period_seconds ?? 30 * 24 * 3600)}
+            onChange={(value) =>
+              setFormData((prev) => ({
+                ...prev,
+                billing_period_seconds:
+                  value === '' ? 30 * 24 * 3600 : parseInt(value, 10) || 30 * 24 * 3600,
+              }))
+            }
+          />
+        </div>
         <Divider margin='12px' />
         <Text type='secondary' size='small'>
           {t('Plan tier (optional)')}
         </Text>
-        <Input
-          placeholder='display_name (customer-facing label, falls back to name)'
-          value={formData.display_name || ''}
-          onChange={(value) =>
-            setFormData((prev) => ({ ...prev, display_name: value }))
-          }
-        />
-        <Input
-          placeholder='plan_code (e.g. lite, pro)'
-          value={formData.plan_code || ''}
-          onChange={(value) =>
-            setFormData((prev) => ({ ...prev, plan_code: value }))
-          }
-        />
-        <Input
-          placeholder='plan_group (e.g. standard) - pools in the same group can upgrade/downgrade'
-          value={formData.plan_group || ''}
-          onChange={(value) =>
-            setFormData((prev) => ({ ...prev, plan_group: value }))
-          }
-        />
-        <InputNumber
-          placeholder='plan_tier (higher = more premium, e.g. Lite=10, Pro=20)'
-          style={{ width: '100%' }}
-          value={Number(formData.plan_tier ?? 0)}
-          min={0}
-          step={1}
-          precision={0}
-          hideButtons
-          onChange={(value) => {
-            const n = typeof value === 'number' && Number.isFinite(value) ? value : 0;
-            setFormData((prev) => ({ ...prev, plan_tier: n }));
-          }}
-        />
-        <InputNumber
-          placeholder='display_order (ascending)'
-          style={{ width: '100%' }}
-          value={Number(formData.display_order ?? 0)}
-          min={0}
-          step={1}
-          precision={0}
-          hideButtons
-          onChange={(value) => {
-            const n = typeof value === 'number' && Number.isFinite(value) ? value : 0;
-            setFormData((prev) => ({ ...prev, display_order: n }));
-          }}
-        />
+        <div>
+          <Text type='tertiary' size='small' className='block mb-1'>Display Name</Text>
+          <Input
+            placeholder='customer-facing label, falls back to name'
+            value={formData.display_name || ''}
+            onChange={updateField('display_name')}
+          />
+        </div>
+        <div>
+          <Text type='tertiary' size='small' className='block mb-1'>Plan Code</Text>
+          <Input
+            placeholder='e.g. lite, pro'
+            value={formData.plan_code || ''}
+            onChange={updateField('plan_code')}
+          />
+        </div>
+        <div>
+          <Text type='tertiary' size='small' className='block mb-1'>Plan Group</Text>
+          <Input
+            placeholder='e.g. standard - pools in same group can upgrade/downgrade'
+            value={formData.plan_group || ''}
+            onChange={updateField('plan_group')}
+          />
+        </div>
+        <div>
+          <Text type='tertiary' size='small' className='block mb-1'>Plan Tier</Text>
+          <InputNumber
+            placeholder='higher = more premium, e.g. Lite=10, Pro=20'
+            style={{ width: '100%' }}
+            value={Number(formData.plan_tier ?? 0)}
+            min={0}
+            step={1}
+            precision={0}
+            hideButtons
+            onChange={(value) => {
+              const n = typeof value === 'number' && Number.isFinite(value) ? value : 0;
+              setFormData((prev) => ({ ...prev, plan_tier: n }));
+            }}
+          />
+        </div>
+        <div>
+          <Text type='tertiary' size='small' className='block mb-1'>Display Order</Text>
+          <InputNumber
+            placeholder='ascending'
+            style={{ width: '100%' }}
+            value={Number(formData.display_order ?? 0)}
+            min={0}
+            step={1}
+            precision={0}
+            hideButtons
+            onChange={(value) => {
+              const n = typeof value === 'number' && Number.isFinite(value) ? value : 0;
+              setFormData((prev) => ({ ...prev, display_order: n }));
+            }}
+          />
+        </div>
+        <Divider margin='12px' />
+        <Text type='secondary' size='small'>
+          {t('Rate Limit Mode')}
+        </Text>
+        <div>
+          <Text type='tertiary' size='small' className='block mb-1'>{t('Rate Limit Mode')}</Text>
+          <Select
+            value={formData.rate_limit_mode || 'sliding'}
+            onChange={updateField('rate_limit_mode')}
+          >
+            <Select.Option value='sliding'>{t('Sliding Window (default)')}</Select.Option>
+            <Select.Option value='fixed'>{t('Fixed Window')}</Select.Option>
+          </Select>
+        </div>
       </div>
     </SideSheet>
   );

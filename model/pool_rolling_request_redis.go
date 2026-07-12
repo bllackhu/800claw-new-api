@@ -76,3 +76,41 @@ func MergeTokenRollingRequestEvents(oldPoolId, tokenId, maxWindowSeconds int) er
 	}
 	return common.RDB.Expire(ctx, dest, time.Duration(maxWindowSeconds+60)*time.Second).Err()
 }
+
+// FixedWindowCounterKey builds the Redis key for a fixed-window counter bucket.
+// Buckets are epoch-aligned: floor(nowUnix / windowSeconds) * windowSeconds.
+func FixedWindowCounterKey(scopeKey string, windowSeconds int, nowUnix int64) string {
+	bucket := nowUnix / int64(windowSeconds)
+	return fmt.Sprintf("token:rq:fixed:%s:%d:%d", scopeKey, windowSeconds, bucket)
+}
+
+// FixedWindowBucketNumber returns the epoch-aligned bucket number for a given timestamp.
+func FixedWindowBucketNumber(nowUnix int64, windowSeconds int) int64 {
+	return nowUnix / int64(windowSeconds)
+}
+
+// FixedWindowResetAt returns the Unix timestamp when the current bucket resets (end of the epoch-aligned window).
+func FixedWindowResetAt(nowUnix int64, windowSeconds int) int64 {
+	bucket := nowUnix / int64(windowSeconds)
+	return (bucket + 1) * int64(windowSeconds)
+}
+
+// FixedWindowResetInSeconds returns the number of seconds until the next reset.
+func FixedWindowResetInSeconds(nowUnix int64, windowSeconds int) int64 {
+	resetAt := FixedWindowResetAt(nowUnix, windowSeconds)
+	return resetAt - nowUnix
+}
+
+// GetFixedWindowCount returns the current bucket counter for the given scope/window.
+// Returns 0 when Redis is disabled or the key is absent (fresh bucket).
+func GetFixedWindowCount(ctx context.Context, scopeKey string, windowSeconds int, nowUnix int64) (int64, error) {
+	if !common.RedisEnabled || common.RDB == nil {
+		return 0, nil
+	}
+	key := FixedWindowCounterKey(scopeKey, windowSeconds, nowUnix)
+	val, err := common.RDB.Get(ctx, key).Int64()
+	if err == redis.Nil {
+		return 0, nil
+	}
+	return val, err
+}

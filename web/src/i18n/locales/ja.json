@@ -3611,6 +3611,12 @@
     "默认折叠侧边栏": "サイドバーをデフォルトで折りたたむ",
     "默认测试模型": "デフォルトテストモデル",
     "默认用户消息": "こんにちは",
-    "默认补全倍率": "デフォルト補完倍率"
+    "默认补全倍率": "デフォルト補完倍率",
+    "Resets in": "リセットまで",
+    "Rate Limit Mode": "レート制限モード",
+    "Sliding Window (default)": "スライディングウィンドウ（デフォルト）",
+    "Fixed Window": "固定ウィンドウ",
+    "Global fixed-window gate is ON. Pools with rate_limit_mode=fixed will use fixed-window enforcement.": "グローバル固定ウィンドウゲートがONです。rate_limit_mode=fixed のプールは固定ウィンドウ制御を使用します。",
+    "Global fixed-window gate is OFF. All pools use sliding-window enforcement regardless of per-pool setting.": "グローバル固定ウィンドウゲートがOFFです。すべてのプールはプールごとの設定に関係なくスライディングウィンドウ制御を使用します。"
   }
 }

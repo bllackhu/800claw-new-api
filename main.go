@@ -291,6 +291,9 @@ func InitResources() error {
 		return err
 	}
 
+	// Pre-load fixed-window Lua script
+	middleware.InitFixedWindowScript()
+
 	// 启动系统监控
 	common.StartSystemMonitor()
 

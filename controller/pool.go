@@ -382,6 +382,13 @@ func GetPoolRollingUsage(c *gin.Context) {
 		redisKey    string
 		scopeIdName string
 	)
+
+	pool, poolErr := model.GetPoolById(poolId)
+	rateLimitMode := ""
+	if poolErr == nil && pool != nil {
+		rateLimitMode = pool.RateLimitMode
+	}
+
 	switch scopeType {
 	case model.PoolQuotaScopeToken:
 		tokenId := scopeId
@@ -415,9 +422,17 @@ func GetPoolRollingUsage(c *gin.Context) {
 			"used_count":            count,
 			"data_source":           "token_llm_rollups",
 			"enforcement_redis_key": redisKey,
+			"rate_limit_mode":       rateLimitMode,
 		}
-		if pool, poolErr := model.GetPoolById(poolId); poolErr == nil && pool != nil {
+		if poolErr == nil && pool != nil {
 			resp["pool_name"] = pool.Name
+		}
+		if rateLimitMode == model.PoolRateLimitModeFixed {
+			nowUnix := time.Now().Unix()
+			resetAt := model.FixedWindowResetAt(nowUnix, windowSeconds)
+			resetIn := model.FixedWindowResetInSeconds(nowUnix, windowSeconds)
+			resp["reset_at"] = resetAt
+			resp["reset_in_seconds"] = resetIn
 		}
 		if token, tokenErr := model.GetTokenById(scopeId); tokenErr == nil && token != nil {
 			resp["token_name"] = token.Name
@@ -460,15 +475,23 @@ func GetPoolRollingUsage(c *gin.Context) {
 		return
 	}
 	resp := gin.H{
-		"pool_id":        poolId,
-		"scope_type":     scopeType,
-		"scope_id":       scopeId,
-		"window_seconds": windowSeconds,
-		"used_count":     count,
-		"redis_key":      redisKey,
+		"pool_id":         poolId,
+		"scope_type":      scopeType,
+		"scope_id":        scopeId,
+		"window_seconds":  windowSeconds,
+		"used_count":      count,
+		"redis_key":       redisKey,
+		"rate_limit_mode": rateLimitMode,
 	}
-	if pool, poolErr := model.GetPoolById(poolId); poolErr == nil && pool != nil {
+	if poolErr == nil && pool != nil {
 		resp["pool_name"] = pool.Name
+	}
+	if rateLimitMode == model.PoolRateLimitModeFixed {
+		nowUnix := time.Now().Unix()
+		resetAt := model.FixedWindowResetAt(nowUnix, windowSeconds)
+		resetIn := model.FixedWindowResetInSeconds(nowUnix, windowSeconds)
+		resp["reset_at"] = resetAt
+		resp["reset_in_seconds"] = resetIn
 	}
 	if scopeType == model.PoolQuotaScopeToken {
 		if token, tokenErr := model.GetTokenById(scopeId); tokenErr == nil && token != nil {
@@ -512,13 +535,22 @@ func GetSelfPoolRollingUsage(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{
-		"pool_id":        pool.Id,
-		"pool_name":      pool.Name,
-		"user_id":        userId,
-		"window_seconds": windowSeconds,
-		"used_count":     count,
-	})
+	resp := gin.H{
+		"pool_id":         pool.Id,
+		"pool_name":       pool.Name,
+		"user_id":         userId,
+		"window_seconds":  windowSeconds,
+		"used_count":      count,
+		"rate_limit_mode": pool.RateLimitMode,
+	}
+	if pool.RateLimitMode == model.PoolRateLimitModeFixed {
+		nowUnix := time.Now().Unix()
+		resetAt := model.FixedWindowResetAt(nowUnix, windowSeconds)
+		resetIn := model.FixedWindowResetInSeconds(nowUnix, windowSeconds)
+		resp["reset_at"] = resetAt
+		resp["reset_in_seconds"] = resetIn
+	}
+	common.ApiSuccess(c, resp)
 }
 
 // GetPoolPeriodOptionsAdmin lists all period options (including disabled) for admin UI.

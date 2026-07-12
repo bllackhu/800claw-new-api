@@ -31,6 +31,7 @@ import {
   formatPoolTokenLine,
   hasPoolLlmTokenUsage,
   resolvePoolUsageLocale,
+  formatResetTime,
 } from '../../../../helpers';
 import {
   quotaToDisplayAmount,
@@ -101,6 +102,17 @@ const EditTokenModal = (props) => {
   )?.[1];
   const poolUsageLocale = resolvePoolUsageLocale(i18n.language);
   const poolUsageUnavailable = '--';
+  const poolUsageIsFixed = poolUsage?.rate_limit_mode === 'fixed';
+  const poolUsageShortestReset = poolUsageIsFixed ? (() => {
+    const entries = Object.entries(poolUsage?.usage || {});
+    let best = null;
+    for (const [, metric] of entries) {
+      if (metric?.available && metric?.reset_in_seconds != null) {
+        if (best == null || metric.reset_in_seconds < best) best = metric.reset_in_seconds;
+      }
+    }
+    return best;
+  })() : null;
   const llmTokenUsage = poolUsage?.llm_token_usage;
   const llmUsageByWindow = llmTokenUsage?.by_window || {};
   const showLlmTokenUsageCard = hasPoolLlmTokenUsage(llmTokenUsage);
@@ -561,6 +573,13 @@ const EditTokenModal = (props) => {
                       <Tag color='yellow' shape='circle'>
                         {getPoolUsageReasonText(poolUsageWarningMetric.reason, t)}
                       </Tag>
+                    )}
+                    {poolUsageIsFixed && poolUsageShortestReset != null && (
+                      <div className='mt-1'>
+                        <Text className='text-xs' style={{ color: 'var(--semi-color-primary)' }}>
+                          {t('Resets in')} {formatResetTime(poolUsageShortestReset)}
+                        </Text>
+                      </div>
                     )}
                     {!poolUsage && props.poolUsageError && (
                       <Tag color='red' shape='circle'>

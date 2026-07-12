@@ -3732,6 +3732,12 @@
     "Failed to save period option": "Failed to save period option",
     "Failed to delete period option": "Failed to delete period option",
     "pool_id and period_months are required": "pool_id and period_months are required",
-    "discount_ratio_bp must be between 1 and 10000": "discount_ratio_bp must be between 1 and 10000"
+    "discount_ratio_bp must be between 1 and 10000": "discount_ratio_bp must be between 1 and 10000",
+    "Resets in": "Resets in",
+    "Rate Limit Mode": "Rate Limit Mode",
+    "Sliding Window (default)": "Sliding Window (default)",
+    "Fixed Window": "Fixed Window",
+    "Global fixed-window gate is ON. Pools with rate_limit_mode=fixed will use fixed-window enforcement.": "Global fixed-window gate is ON. Pools with rate_limit_mode=fixed will use fixed-window enforcement.",
+    "Global fixed-window gate is OFF. All pools use sliding-window enforcement regardless of per-pool setting.": "Global fixed-window gate is OFF. All pools use sliding-window enforcement regardless of per-pool setting."
   }
 }

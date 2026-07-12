@@ -3635,6 +3635,12 @@
     "默认折叠侧边栏": "預設摺疊側邊欄",
     "默认测试模型": "預設測試模型",
     "默认用户消息": "你好",
-    "默认补全倍率": "預設補全倍率"
+    "默认补全倍率": "預設補全倍率",
+    "Resets in": "將在...後重置",
+    "Rate Limit Mode": "速率限制模式",
+    "Sliding Window (default)": "滑動窗口（默認）",
+    "Fixed Window": "固定窗口",
+    "Global fixed-window gate is ON. Pools with rate_limit_mode=fixed will use fixed-window enforcement.": "全域固定窗口閘道已開啟。rate_limit_mode=fixed 的池將使用固定窗口強制執行。",
+    "Global fixed-window gate is OFF. All pools use sliding-window enforcement regardless of per-pool setting.": "全域固定窗口閘道已關閉。所有池將使用滑動窗口強制執行，無論每池設定如何。"
   }
 }

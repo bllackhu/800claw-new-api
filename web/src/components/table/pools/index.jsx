@@ -17,8 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React from 'react';
+import React, { useContext } from 'react';
 import {
+  Banner,
   Button,
   Card,
   Divider,
@@ -32,6 +33,7 @@ import {
   Typography,
 } from '@douyinfe/semi-ui';
 import { usePoolsData } from '../../../hooks/pools/usePoolsData';
+import { StatusContext } from '../../../context/Status';
 import PoolFormSideSheet from './modals/PoolFormSideSheet';
 import PoolChannelFormSideSheet from './modals/PoolChannelFormSideSheet';
 import PoolPolicyFormSideSheet from './modals/PoolPolicyFormSideSheet';
@@ -42,6 +44,8 @@ import TokenSubscriptionFormSideSheet from './modals/TokenSubscriptionFormSideSh
 const { Text } = Typography;
 
 const PoolsTable = () => {
+  const [statusState] = useContext(StatusContext);
+  const poolFixedWindowEnabled = statusState?.status?.pool_fixed_window_enabled;
   const {
     PAGE_SIZE,
     t,
@@ -238,6 +242,18 @@ const PoolsTable = () => {
           {t('Refresh')}
         </Button>
       </div>
+
+      {poolFixedWindowEnabled !== undefined && (
+        <Banner
+          className='mb-4'
+          type={poolFixedWindowEnabled ? 'info' : 'warning'}
+          closeIcon={null}
+          description={poolFixedWindowEnabled
+            ? t('Global fixed-window gate is ON. Pools with rate_limit_mode=fixed will use fixed-window enforcement.')
+            : t('Global fixed-window gate is OFF. All pools use sliding-window enforcement regardless of per-pool setting.')
+          }
+        />
+      )}
 
       <Tabs activeKey={activeTab} onChange={handleTabChange} type='card'>
         <TabPane className='pt-4' tab={t('Pool Bindings')} itemKey='binding'>

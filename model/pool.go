@@ -28,6 +28,11 @@ const (
 	PoolQuotaScopeToken         = "token"
 )
 
+const (
+	PoolRateLimitModeSliding = "sliding"
+	PoolRateLimitModeFixed   = "fixed"
+)
+
 type Pool struct {
 	Id                   int     `json:"id"`
 	Name                 string  `json:"name" gorm:"type:varchar(64);uniqueIndex;not null"`
@@ -48,6 +53,10 @@ type Pool struct {
 	DisplayName string `json:"display_name" gorm:"type:varchar(128);default:''"`
 	// DisplayOrder controls list ordering on the customer UI (ascending).
 	DisplayOrder int   `json:"display_order" gorm:"default:0"`
+	// RateLimitMode controls which algorithm enforces pool quota policies.
+	// "sliding" (default) = ZSET-backed sliding window (current behavior).
+	// "fixed" = epoch-aligned fixed-window counter (INCR/DECR).
+	RateLimitMode string `json:"rate_limit_mode" gorm:"type:varchar(16);default:'sliding';index"`
 	CreatedAt    int64 `json:"created_at" gorm:"bigint;index"`
 	UpdatedAt    int64 `json:"updated_at" gorm:"bigint"`
 }
@@ -373,6 +382,7 @@ func UpdatePool(pool *Pool) error {
 		"plan_tier":              pool.PlanTier,
 		"display_name":           pool.DisplayName,
 		"display_order":          pool.DisplayOrder,
+		"rate_limit_mode":        pool.RateLimitMode,
 		"updated_at":             common.GetTimestamp(),
 	}).Error
 }

@@ -4176,6 +4176,12 @@
     "默认折叠侧边栏": "Mặc định thu gọn thanh bên",
     "默认测试模型": "Mô hình kiểm tra mặc định",
     "默认用户消息": "Xin chào",
-    "默认补全倍率": "Tỷ lệ hoàn thành mặc định"
+    "默认补全倍率": "Tỷ lệ hoàn thành mặc định",
+    "Resets in": "Đặt lại sau",
+    "Rate Limit Mode": "Chế độ giới hạn tốc độ",
+    "Sliding Window (default)": "Cửa sổ trượt (mặc định)",
+    "Fixed Window": "Cửa sổ cố định",
+    "Global fixed-window gate is ON. Pools with rate_limit_mode=fixed will use fixed-window enforcement.": "Cổng cửa sổ cố định toàn cục đang BẬT. Các pool có rate_limit_mode=fixed sẽ sử dụng cơ chế cửa sổ cố định.",
+    "Global fixed-window gate is OFF. All pools use sliding-window enforcement regardless of per-pool setting.": "Cổng cửa sổ cố định toàn cục đang TẮT. Tất cả pool sử dụng cơ chế cửa sổ trượt bất kể cài đặt từng pool."
   }
 }

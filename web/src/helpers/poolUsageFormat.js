@@ -92,3 +92,17 @@ export function hasPoolLlmTokenUsage(llmTokenUsage) {
       Number(lifetime.total_tokens) > 0);
   return hasWindow || hasLifetime;
 }
+
+export function formatResetTime(resetInSeconds) {
+  if (resetInSeconds == null || !Number.isFinite(resetInSeconds)) return '';
+  const s = Number(resetInSeconds);
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return `${h}h ${m}m`;
+  }
+  const d = Math.floor(s / 86400);
+  return `${d}d`;
+}

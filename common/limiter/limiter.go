@@ -13,6 +13,9 @@ import (
 //go:embed lua/rate_limit.lua
 var rateLimitScript string
 
+//go:embed lua/fixed_window_enforce.lua
+var FixedWindowEnforceScript string
+
 type RedisLimiter struct {
 	client         *redis.Client
 	limitScriptSHA string

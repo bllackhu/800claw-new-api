@@ -167,3 +167,75 @@ func TestLoadPoolQuotaScopePoliciesAndScopeKey_LoaderError(t *testing.T) {
 	assert.Equal(t, 0, maxWindow)
 }
 
+func TestFixedWindowCounterKey(t *testing.T) {
+	t.Parallel()
+	// At Unix 1750000000, a 5h (18000s) window: bucket = 1750000000 / 18000 = 97222
+	key := model.FixedWindowCounterKey("token:123", 18000, 1750000000)
+	assert.Equal(t, "token:rq:fixed:token:123:18000:97222", key)
+
+	// At Unix 1750018000 (5h later), bucket = 1750018000 / 18000 = 97223
+	key2 := model.FixedWindowCounterKey("token:123", 18000, 1750018000)
+	assert.Equal(t, "token:rq:fixed:token:123:18000:97223", key2)
+	assert.NotEqual(t, key, key2, "keys should differ across bucket boundaries")
+}
+
+func TestFixedWindowBucketNumber(t *testing.T) {
+	t.Parallel()
+	// 5h window
+	bucket := model.FixedWindowBucketNumber(1750000000, 18000)
+	assert.Equal(t, int64(97222), bucket)
+
+	// 7d window
+	bucket7d := model.FixedWindowBucketNumber(1750000000, 604800)
+	assert.Equal(t, int64(2893), bucket7d)
+
+	// 30d window
+	bucket30d := model.FixedWindowBucketNumber(1750000000, 2592000)
+	assert.Equal(t, int64(675), bucket30d)
+}
+
+func TestFixedWindowResetAt(t *testing.T) {
+	t.Parallel()
+	// At Unix 1750000000, 5h window: reset at (97222+1)*18000 = 1750014000
+	resetAt := model.FixedWindowResetAt(1750000000, 18000)
+	assert.Equal(t, int64(1750014000), resetAt)
+
+	// At Unix 1750014000 (exactly on boundary), 5h window: bucket = 1750014000/18000 = 97223, reset at (97223+1)*18000 = 1750032000
+	resetAt2 := model.FixedWindowResetAt(1750014000, 18000)
+	assert.Equal(t, int64(1750032000), resetAt2)
+
+	// 7d window
+	resetAt7d := model.FixedWindowResetAt(1750000000, 604800)
+	assert.Equal(t, int64(1750604800), resetAt7d)
+}
+
+func TestFixedWindowResetInSeconds(t *testing.T) {
+	t.Parallel()
+	// At Unix 1750000000, 5h window: reset at 1750014000, so resetIn = 14000s
+	resetIn := model.FixedWindowResetInSeconds(1750000000, 18000)
+	assert.Equal(t, int64(14000), resetIn)
+
+	// 30d window: resetIn = 2592000s
+	resetIn30d := model.FixedWindowResetInSeconds(1750000000, 2592000)
+	assert.Equal(t, int64(2592000), resetIn30d)
+}
+
+func TestFilterValidPoolQuotaPolicies(t *testing.T) {
+	t.Parallel()
+	policies := []*model.PoolQuotaPolicy{
+		{Metric: model.PoolQuotaMetricRequestCount, ScopeType: model.PoolQuotaScopeToken, WindowSeconds: 18000, LimitCount: 100},
+		{Metric: model.PoolQuotaMetricRequestCount, ScopeType: model.PoolQuotaScopeToken, WindowSeconds: 0, LimitCount: 10},   // invalid: zero window
+		{Metric: model.PoolQuotaMetricRequestCount, ScopeType: model.PoolQuotaScopeToken, WindowSeconds: 300, LimitCount: 0},  // invalid: zero limit
+		{Metric: model.PoolQuotaMetricRequestCount, ScopeType: model.PoolQuotaScopeToken, WindowSeconds: 604800, LimitCount: 1000},
+		{Metric: model.PoolQuotaMetricRequestCount, ScopeType: model.PoolQuotaScopeToken, WindowSeconds: 2592000, LimitCount: 5000},
+		nil, // nil pointer
+	}
+
+	valid, maxWindow := filterValidPoolQuotaPolicies(policies)
+	require.Len(t, valid, 3)
+	assert.Equal(t, 2592000, maxWindow)
+	assert.Equal(t, 18000, valid[0].WindowSeconds)
+	assert.Equal(t, 604800, valid[1].WindowSeconds)
+	assert.Equal(t, 2592000, valid[2].WindowSeconds)
+}
+

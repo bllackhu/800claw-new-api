@@ -3662,6 +3662,12 @@
     "默认折叠侧边栏": "Сворачивать боковую панель по умолчанию",
     "默认测试模型": "Модель для тестирования по умолчанию",
     "默认用户消息": "Здравствуйте",
-    "默认补全倍率": "Коэффициент завершения по умолчанию"
+    "默认补全倍率": "Коэффициент завершения по умолчанию",
+    "Resets in": "Сброс через",
+    "Rate Limit Mode": "Режим ограничения",
+    "Sliding Window (default)": "Скользящее окно (по умолчанию)",
+    "Fixed Window": "Фиксированное окно",
+    "Global fixed-window gate is ON. Pools with rate_limit_mode=fixed will use fixed-window enforcement.": "Глобальный шлюз фиксированного окна ВКЛЮЧЕН. Пулы с rate_limit_mode=fixed будут использовать фиксированное окно.",
+    "Global fixed-window gate is OFF. All pools use sliding-window enforcement regardless of per-pool setting.": "Глобальный шлюз фиксированного окна ВЫКЛЮЧЕН. Все пулы используют скользящее окно независимо от настроек."
   }
 }

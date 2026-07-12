@@ -3642,6 +3642,12 @@
     "默认折叠侧边栏": "Réduire la barre latérale par défaut",
     "默认测试模型": "Modèle de test par défaut",
     "默认用户消息": "Bonjour",
-    "默认补全倍率": "Taux de complétion par défaut"
+    "默认补全倍率": "Taux de complétion par défaut",
+    "Resets in": "Réinitialise dans",
+    "Rate Limit Mode": "Mode de limite de débit",
+    "Sliding Window (default)": "Fenêtre glissante (défaut)",
+    "Fixed Window": "Fenêtre fixe",
+    "Global fixed-window gate is ON. Pools with rate_limit_mode=fixed will use fixed-window enforcement.": "La porte globale de fenêtre fixe est ACTIVÉE. Les pools avec rate_limit_mode=fixed utiliseront l'application par fenêtre fixe.",
+    "Global fixed-window gate is OFF. All pools use sliding-window enforcement regardless of per-pool setting.": "La porte globale de fenêtre fixe est DÉSACTIVÉE. Tous les pools utilisent l'application par fenêtre glissante, quel que soit le paramètre par pool."
   }
 }

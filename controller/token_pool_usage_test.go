@@ -617,3 +617,141 @@ func TestGetTokenPoolUsageSelf_RequestCountsFromBuckets(t *testing.T) {
 	require.NotNil(t, payload.Item.Usage["5h"].Count)
 	require.EqualValues(t, 7, *payload.Item.Usage["5h"].Count)
 }
+
+func TestBuildTokenPoolUsageItem_FixedWindowUsesRedisCount(t *testing.T) {
+	originalGate := common.PoolFixedWindowEnabled
+	common.PoolFixedWindowEnabled = true
+	t.Cleanup(func() { common.PoolFixedWindowEnabled = originalGate })
+
+	token := &model.Token{Id: 71, UserId: 201, Name: "token-fixed", Group: "g-fixed"}
+	pool := &model.Pool{Id: 41, Name: "fixed_pool", RateLimitMode: model.PoolRateLimitModeFixed}
+	windows, windowSeconds, err := normalizeTokenPoolUsageWindows([]string{"5h"})
+	require.NoError(t, err)
+
+	slidingCalled := false
+	fixedCalled := false
+	item, err := buildTokenPoolUsageItemWithDeps(token, windows, windowSeconds, tokenPoolUsageBuilderDeps{
+		resolvePool: func(token *model.Token) (*model.Pool, error) { return pool, nil },
+		loadPolicies: func(poolId int, scopeType string) ([]*model.PoolQuotaPolicy, error) {
+			if scopeType == model.PoolQuotaScopeToken {
+				return []*model.PoolQuotaPolicy{
+					{
+						Metric:        model.PoolQuotaMetricRequestCount,
+						ScopeType:     model.PoolQuotaScopeToken,
+						WindowSeconds: 5 * 3600,
+						LimitCount:    300,
+						Enabled:       true,
+					},
+				}, nil
+			}
+			return nil, nil
+		},
+		countRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+			slidingCalled = true
+			return 349, nil
+		},
+		countFixedRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+			fixedCalled = true
+			require.Equal(t, token.Id, tokenId)
+			require.Equal(t, 5*3600, windowSeconds)
+			return 12, nil
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, fixedCalled, "fixed-window counter should be used for fixed pools")
+	require.False(t, slidingCalled, "sliding counter must not run when fixed branch is active")
+	require.NotNil(t, item.Usage["5h"].Count)
+	require.EqualValues(t, 12, *item.Usage["5h"].Count)
+	require.NotNil(t, item.Usage["5h"].ResetAt)
+	require.NotNil(t, item.Usage["5h"].ResetInSeconds)
+}
+
+func TestBuildTokenPoolUsageItem_FixedWindowFallsBackWhenGlobalGateOff(t *testing.T) {
+	originalGate := common.PoolFixedWindowEnabled
+	common.PoolFixedWindowEnabled = false
+	t.Cleanup(func() { common.PoolFixedWindowEnabled = originalGate })
+
+	token := &model.Token{Id: 72, UserId: 202, Name: "token-fixed-off", Group: "g-fixed-off"}
+	pool := &model.Pool{Id: 42, Name: "fixed_pool_off", RateLimitMode: model.PoolRateLimitModeFixed}
+	windows, windowSeconds, err := normalizeTokenPoolUsageWindows([]string{"5h"})
+	require.NoError(t, err)
+
+	slidingCalled := false
+	fixedCalled := false
+	item, err := buildTokenPoolUsageItemWithDeps(token, windows, windowSeconds, tokenPoolUsageBuilderDeps{
+		resolvePool: func(token *model.Token) (*model.Pool, error) { return pool, nil },
+		loadPolicies: func(poolId int, scopeType string) ([]*model.PoolQuotaPolicy, error) {
+			if scopeType == model.PoolQuotaScopeToken {
+				return []*model.PoolQuotaPolicy{
+					{
+						Metric:        model.PoolQuotaMetricRequestCount,
+						ScopeType:     model.PoolQuotaScopeToken,
+						WindowSeconds: 5 * 3600,
+						LimitCount:    300,
+						Enabled:       true,
+					},
+				}, nil
+			}
+			return nil, nil
+		},
+		countRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+			slidingCalled = true
+			return 349, nil
+		},
+		countFixedRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+			fixedCalled = true
+			return 0, nil
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, slidingCalled, "sliding count must be used when global kill switch is off")
+	require.False(t, fixedCalled, "fixed counter must not run when global kill switch is off")
+	require.NotNil(t, item.Usage["5h"].Count)
+	require.EqualValues(t, 349, *item.Usage["5h"].Count)
+}
+
+func TestBuildTokenPoolUsageItem_SlidingModeUnaffected(t *testing.T) {
+	originalGate := common.PoolFixedWindowEnabled
+	common.PoolFixedWindowEnabled = true
+	t.Cleanup(func() { common.PoolFixedWindowEnabled = originalGate })
+
+	token := &model.Token{Id: 73, UserId: 203, Name: "token-slide", Group: "g-slide"}
+	pool := &model.Pool{Id: 43, Name: "sliding_pool", RateLimitMode: model.PoolRateLimitModeSliding}
+	windows, windowSeconds, err := normalizeTokenPoolUsageWindows([]string{"5h"})
+	require.NoError(t, err)
+
+	slidingCalled := false
+	fixedCalled := false
+	item, err := buildTokenPoolUsageItemWithDeps(token, windows, windowSeconds, tokenPoolUsageBuilderDeps{
+		resolvePool: func(token *model.Token) (*model.Pool, error) { return pool, nil },
+		loadPolicies: func(poolId int, scopeType string) ([]*model.PoolQuotaPolicy, error) {
+			if scopeType == model.PoolQuotaScopeToken {
+				return []*model.PoolQuotaPolicy{
+					{
+						Metric:        model.PoolQuotaMetricRequestCount,
+						ScopeType:     model.PoolQuotaScopeToken,
+						WindowSeconds: 5 * 3600,
+						LimitCount:    300,
+						Enabled:       true,
+					},
+				}, nil
+			}
+			return nil, nil
+		},
+		countRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+			slidingCalled = true
+			return 55, nil
+		},
+		countFixedRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+			fixedCalled = true
+			return 0, nil
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, slidingCalled, "sliding pools must always use sliding count")
+	require.False(t, fixedCalled, "fixed counter must not run for sliding pools")
+	require.NotNil(t, item.Usage["5h"].Count)
+	require.EqualValues(t, 55, *item.Usage["5h"].Count)
+	require.Nil(t, item.Usage["5h"].ResetAt, "reset fields must not be populated for sliding pools")
+	require.Nil(t, item.Usage["5h"].ResetInSeconds)
+}

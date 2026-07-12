@@ -38,6 +38,7 @@ import {
   getModelCategories,
   showError,
   getPoolUsageReasonText,
+  formatResetTime,
 } from '../../../helpers';
 import {
   IconTreeTriangleDown,
@@ -45,6 +46,8 @@ import {
   IconEyeOpened,
   IconEyeClosed,
 } from '@douyinfe/semi-icons';
+
+const { Text } = Typography;
 
 // Render functions
 function renderTimestamp(timestamp) {
@@ -261,6 +264,25 @@ const renderPoolUsageMetric = (label, metric, t) => {
   );
 };
 
+const renderPoolUsageResetLine = (item, t) => {
+  if (item?.rate_limit_mode !== 'fixed') return null;
+  const usage = item?.usage || {};
+  const entries = Object.entries(usage);
+  const shortest = entries.reduce((best, [, metric]) => {
+    if (!metric?.available || metric.reset_in_seconds == null) return best;
+    if (best == null || metric.reset_in_seconds < best) return metric.reset_in_seconds;
+    return best;
+  }, null);
+  if (shortest == null) return null;
+  return (
+    <div className='mt-1'>
+      <Text size='small' style={{ color: 'var(--semi-color-primary)' }}>
+        {t('Resets in')} {formatResetTime(shortest)}
+      </Text>
+    </div>
+  );
+};
+
 const renderPoolUsage = (
   record,
   tokenPoolUsageById,
@@ -331,6 +353,7 @@ const renderPoolUsage = (
           </Tag>
         </div>
       )}
+      {renderPoolUsageResetLine(item, t)}
     </div>
   );
 
@@ -352,6 +375,7 @@ const renderPoolUsage = (
             </Text>
           </div>
         )}
+        {renderPoolUsageResetLine(item, t)}
       </div>
     </Popover>
   );

@@ -87,6 +87,7 @@ export const usePoolsData = () => {
     plan_tier: 0,
     display_name: '',
     display_order: 0,
+    rate_limit_mode: 'sliding',
   });
   const [showPoolForm, setShowPoolForm] = useState(false);
 
@@ -441,6 +442,7 @@ export const usePoolsData = () => {
       plan_tier: 0,
       display_name: '',
       display_order: 0,
+      rate_limit_mode: 'sliding',
     });
   const resetChannelForm = () =>
     setChannelForm({
@@ -584,6 +586,7 @@ export const usePoolsData = () => {
       plan_tier: Number(record.plan_tier) || 0,
       display_name: record.display_name || '',
       display_order: Number(record.display_order) || 0,
+      rate_limit_mode: record.rate_limit_mode || 'sliding',
     });
     setShowPoolForm(true);
   };
@@ -1008,6 +1011,19 @@ export const usePoolsData = () => {
         render: (value) => (Number(value) === 1 ? 'Enabled' : 'Disabled'),
       },
       { title: 'Order', dataIndex: 'display_order', width: 72 },
+      {
+        title: 'Rate mode',
+        dataIndex: 'rate_limit_mode',
+        width: 100,
+        render: (value) => {
+          const mode = value || 'sliding';
+          return (
+            <Tag color={mode === 'fixed' ? 'blue' : 'green'}>
+              {mode === 'fixed' ? 'Fixed' : 'Sliding'}
+            </Tag>
+          );
+        },
+      },
       {
         title: 'Actions',
         dataIndex: 'operate',

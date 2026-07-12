@@ -116,6 +116,7 @@ var RetryTimes = 0
 var PoolEnabled = false
 var PoolQuotaEnabled = false
 var PoolRollingWindowEnabled = false
+var PoolFixedWindowEnabled = false
 
 //var RootUserEmail = ""
 
