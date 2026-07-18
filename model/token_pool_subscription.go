@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// TokenPoolSubscriptionOrder records a native WeChat Pay pool subscription checkout.
+// TokenPoolSubscriptionOrder records a WeChat Pay pool subscription checkout (native or JSAPI).
 type TokenPoolSubscriptionOrder struct {
 	Id                   int     `json:"id"`
 	UserId               int     `json:"user_id" gorm:"index"`
@@ -32,11 +32,17 @@ type TokenPoolSubscriptionOrder struct {
 	CreditSecondsGranted int64  `json:"credit_seconds_granted" gorm:"bigint;default:0"`
 	TradeNo              string `json:"trade_no" gorm:"type:varchar(64);uniqueIndex"`
 	CodeUrl              string `json:"-" gorm:"type:text"`
-	WechatTransactionId  string `json:"wechat_transaction_id" gorm:"type:varchar(64);default:''"`
-	Status               string `json:"status" gorm:"type:varchar(32);index"`
-	RawNotify            string `json:"raw_notify" gorm:"type:text"`
-	CreateTime           int64  `json:"create_time" gorm:"bigint;index"`
-	CompleteTime         int64  `json:"complete_time" gorm:"bigint"`
+	// PaymentType discriminates the payment method: "native" or "jsapi".
+	PaymentType string `json:"payment_type" gorm:"type:varchar(16);default:'native'"`
+	// PrepayId is the JSAPI prepay session ID (WeChat Pay JSAPI only).
+	PrepayId string `json:"prepay_id" gorm:"type:varchar(64);default:''"`
+	// Openid is the payer's openid in the JSAPI appid (JSAPI only).
+	Openid             string `json:"openid" gorm:"type:varchar(64);default:''"`
+	WechatTransactionId string `json:"wechat_transaction_id" gorm:"type:varchar(64);default:''"`
+	Status              string `json:"status" gorm:"type:varchar(32);index"`
+	RawNotify           string `json:"raw_notify" gorm:"type:text"`
+	CreateTime          int64  `json:"create_time" gorm:"bigint;index"`
+	CompleteTime        int64  `json:"complete_time" gorm:"bigint"`
 }
 
 func (TokenPoolSubscriptionOrder) TableName() string {

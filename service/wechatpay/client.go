@@ -17,6 +17,7 @@ import (
 	"github.com/wechatpay-apiv3/wechatpay-go/core/notify"
 	"github.com/wechatpay-apiv3/wechatpay-go/core/option"
 	"github.com/wechatpay-apiv3/wechatpay-go/services/payments"
+	"github.com/wechatpay-apiv3/wechatpay-go/services/payments/jsapi"
 	"github.com/wechatpay-apiv3/wechatpay-go/services/payments/native"
 )
 
@@ -130,6 +131,38 @@ func NativePrepay(ctx context.Context, cfg *Config, client *core.Client, notifyU
 		return "", errors.New("empty code_url from wechat pay")
 	}
 	return *resp.CodeUrl, nil
+}
+
+// JsapiPrepay creates a JSAPI order and returns the prepay_id.
+func JsapiPrepay(ctx context.Context, cfg *Config, client *core.Client, notifyURL, outTradeNo, description string, totalFen int64, openid string) (prepayID string, err error) {
+	if totalFen <= 0 {
+		return "", errors.New("invalid amount")
+	}
+	if openid == "" {
+		return "", errors.New("empty openid")
+	}
+	svc := jsapi.JsapiApiService{Client: client}
+	resp, _, err := svc.Prepay(ctx, jsapi.PrepayRequest{
+		Appid:       core.String(cfg.AppID),
+		Mchid:       core.String(cfg.MchID),
+		Description: core.String(description),
+		OutTradeNo:  core.String(outTradeNo),
+		NotifyUrl:   core.String(notifyURL),
+		Amount: &jsapi.Amount{
+			Total:    core.Int64(totalFen),
+			Currency: core.String("CNY"),
+		},
+		Payer: &jsapi.Payer{
+			Openid: core.String(openid),
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if resp == nil || resp.PrepayId == nil {
+		return "", errors.New("empty prepay_id from wechat pay")
+	}
+	return *resp.PrepayId, nil
 }
 
 // QueryTransactionByOutTradeNo loads order state from WeChat by merchant out_trade_no.

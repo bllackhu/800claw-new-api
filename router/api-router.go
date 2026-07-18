@@ -273,6 +273,7 @@ func SetApiRouter(router *gin.Engine) {
 			usageTokenCheckout.Use(middleware.CriticalRateLimit(), middleware.TokenAuth(), middleware.CriticalRateLimit())
 			{
 				usageTokenCheckout.POST("/pool/subscription/wechat/checkout", controller.RequestTokenPoolSubscriptionWechatCheckout)
+				usageTokenCheckout.POST("/pool/subscription/wechat/jsapi/checkout", controller.WechatPayJsapiCheckout)
 				usageTokenCheckout.POST("/pool/subscription/quote", controller.QuoteTokenPoolSubscription)
 			}
 			tokenUsageRoute := usageRoute.Group("/token")
@@ -282,6 +283,7 @@ func SetApiRouter(router *gin.Engine) {
 				tokenUsageRoute.GET("/pool", controller.GetTokenPoolUsageSelf)
 				tokenUsageRoute.GET("/pool/plans", controller.GetTokenPoolPlans)
 				tokenUsageRoute.GET("/pool/subscription/order", controller.GetTokenPoolSubscriptionOrderSelf)
+				tokenUsageRoute.GET("/pool/subscription/wechat/appid", controller.WechatPayJsapiAppid)
 			}
 		}
 

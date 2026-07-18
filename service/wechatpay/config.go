@@ -1,7 +1,8 @@
 // Package wechatpay wraps github.com/wechatpay-apiv3/wechatpay-go (Tencent-maintained API v3 SDK).
 //
 // Configuration (environment):
-//   WECHATPAY_APP_ID                 — WeChat appid (required for Native prepay)
+//   WECHATPAY_APP_ID                 — WeChat appid (required for Native + JSAPI prepay)
+//   WECHATPAY_APP_SECRET             — WeChat app secret (required for JSAPI OAuth + jsapi_ticket)
 //   WECHATPAY_MCH_ID                 — merchant id
 //   WECHATPAY_MCH_CERTIFICATE_SERIAL — merchant API cert serial number
 //   WECHATPAY_MCH_API_V3_KEY         — API v3 key (32 bytes)
@@ -32,6 +33,7 @@ import (
 // Config holds WeChat Pay merchant settings loaded from the environment.
 type Config struct {
 	AppID                      string
+	AppSecret                  string
 	MchID                      string
 	MchCertificateSerialNumber string
 	MchAPIv3Key                string
@@ -43,6 +45,7 @@ type Config struct {
 
 func LoadConfigFromEnv() (*Config, error) {
 	appID := strings.TrimSpace(os.Getenv("WECHATPAY_APP_ID"))
+	appSecret := strings.TrimSpace(os.Getenv("WECHATPAY_APP_SECRET"))
 	mchID := strings.TrimSpace(os.Getenv("WECHATPAY_MCH_ID"))
 	serial := strings.TrimSpace(os.Getenv("WECHATPAY_MCH_CERTIFICATE_SERIAL"))
 	if s := strings.TrimSpace(os.Getenv("WECHATPAY_MCH_CERTIFICATE_SERIAL_NUMBER")); s != "" {
@@ -93,6 +96,7 @@ func LoadConfigFromEnv() (*Config, error) {
 
 	return &Config{
 		AppID:                      appID,
+		AppSecret:                  appSecret,
 		MchID:                      mchID,
 		MchCertificateSerialNumber: serial,
 		MchAPIv3Key:                apiV3,
