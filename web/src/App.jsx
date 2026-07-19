@@ -46,7 +46,6 @@ import ModelDeploymentPage from './pages/ModelDeployment';
 import PoolPage from './pages/Pool';
 import Playground from './pages/Playground';
 import Subscription from './pages/Subscription';
-import WechatPay800claw from './pages/WechatPay800claw';
 import OAuth2Callback from './components/auth/OAuth2Callback';
 import PersonalSetting from './components/settings/PersonalSetting';
 import Setup from './pages/Setup';
@@ -387,7 +386,6 @@ function App() {
             </PrivateRoute>
           }
         />
-        <Route path='/wechat-pay-800claw' element={<WechatPay800claw />} />
         <Route path='*' element={<NotFound />} />
       </Routes>
     </SetupCheck>

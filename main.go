@@ -181,6 +181,7 @@ func main() {
 
 	InjectUmamiAnalytics()
 	InjectGoogleAnalytics()
+	InjectWechatPayTitle()
 
 	// 设置路由
 	router.SetRouter(server, buildFS, indexPage)
@@ -237,6 +238,14 @@ func InjectGoogleAnalytics() {
 	analyticsInjectBuilder.WriteString("<!--Google Analytics QuantumNous-->\n")
 	analyticsInject := analyticsInjectBuilder.String()
 	indexPage = bytes.ReplaceAll(indexPage, []byte("<!--Google Analytics-->\n"), []byte(analyticsInject))
+}
+
+func InjectWechatPayTitle() {
+	title := os.Getenv("WECHATPAY_PAGE_TITLE")
+	if title == "" {
+		title = "养虾匠"
+	}
+	indexPage = bytes.ReplaceAll(indexPage, []byte("<title>New API</title>"), []byte("<title>"+title+"</title>"))
 }
 
 func InitResources() error {

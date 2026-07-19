@@ -19,13 +19,14 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import '@semi-global-css';
 import { UserProvider } from './context/User';
 import 'react-toastify/dist/ReactToastify.css';
 import { StatusProvider } from './context/Status';
 import { ThemeProvider } from './context/Theme';
 import PageLayout from './components/layout/PageLayout';
+import WechatPay800claw from './pages/WechatPay800claw';
 import './i18n/i18n';
 import './index.css';
 import { LocaleProvider } from '@douyinfe/semi-ui';
@@ -57,21 +58,26 @@ function SemiLocaleWrapper({ children }) {
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <StatusProvider>
-      <UserProvider>
-        <BrowserRouter
-          future={{
-            v7_startTransition: true,
-            v7_relativeSplatPath: true,
-          }}
-        >
-          <ThemeProvider>
-            <SemiLocaleWrapper>
-              <PageLayout />
-            </SemiLocaleWrapper>
-          </ThemeProvider>
-        </BrowserRouter>
-      </UserProvider>
-    </StatusProvider>
+    <BrowserRouter
+      future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true,
+      }}
+    >
+      <Routes>
+        <Route path="/wechat-pay-800claw" element={<WechatPay800claw />} />
+        <Route path="*" element={
+          <StatusProvider>
+            <UserProvider>
+              <ThemeProvider>
+                <SemiLocaleWrapper>
+                  <PageLayout />
+                </SemiLocaleWrapper>
+              </ThemeProvider>
+            </UserProvider>
+          </StatusProvider>
+        } />
+      </Routes>
+    </BrowserRouter>
   </React.StrictMode>,
 );

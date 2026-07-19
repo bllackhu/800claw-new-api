@@ -54,6 +54,8 @@ func SetApiRouter(router *gin.Engine) {
 
 		// Universal secure verification routes
 		apiRouter.POST("/verify", middleware.UserAuth(), middleware.CriticalRateLimit(), controller.UniversalVerify)
+		// JSAPI payment checkout (public - protected by state token)
+		apiRouter.POST("/usage/token/pool/subscription/wechat/jsapi/checkout", controller.WechatPayJsapiCheckout)
 
 		userRoute := apiRouter.Group("/user")
 		{
@@ -273,7 +275,7 @@ func SetApiRouter(router *gin.Engine) {
 			usageTokenCheckout.Use(middleware.CriticalRateLimit(), middleware.TokenAuth(), middleware.CriticalRateLimit())
 			{
 				usageTokenCheckout.POST("/pool/subscription/wechat/checkout", controller.RequestTokenPoolSubscriptionWechatCheckout)
-				usageTokenCheckout.POST("/pool/subscription/wechat/jsapi/checkout", controller.WechatPayJsapiCheckout)
+				usageTokenCheckout.POST("/pool/subscription/wechat/jsapi/oauth-params", controller.WechatPayJsapiOauthParams)
 				usageTokenCheckout.POST("/pool/subscription/quote", controller.QuoteTokenPoolSubscription)
 			}
 			tokenUsageRoute := usageRoute.Group("/token")

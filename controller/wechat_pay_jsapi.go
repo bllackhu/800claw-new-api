@@ -3,7 +3,6 @@ package controller
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -17,6 +16,7 @@ import (
 type jsapiCheckoutRequest struct {
 	PoolId       int    `json:"pool_id"`
 	PeriodMonths *int   `json:"period_months,omitempty"`
+	State        string `json:"state"`
 	Code         string `json:"code"`
 	PageURL      string `json:"page_url"`
 }
@@ -74,10 +74,50 @@ func WechatPayJsapiAppid(c *gin.Context) {
 	})
 }
 
-func WechatPayJsapiCheckout(c *gin.Context) {
-	var req jsapiCheckoutRequest
+func WechatPayJsapiOauthParams(c *gin.Context) {
+	var req struct {
+		PoolId       int `json:"pool_id"`
+		PeriodMonths int `json:"period_months"`
+	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.PoolId <= 0 {
 		common.ApiErrorMsg(c, "invalid request: pool_id required")
+		return
+	}
+	if req.PeriodMonths <= 0 {
+		req.PeriodMonths = 1
+	}
+
+	tokenId := c.GetInt("token_id")
+	if tokenId <= 0 {
+		common.ApiErrorMsg(c, "invalid token")
+		return
+	}
+
+	ctx := c.Request.Context()
+	_, cfg, err := wechatpay.Client(ctx)
+	if err != nil || cfg == nil {
+		common.ApiErrorMsg(c, "wechat pay is not configured")
+		return
+	}
+
+	appID, err := wechatpay.GetJsapiAppID(cfg)
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+
+	state := generateStateToken(tokenId, req.PoolId, req.PeriodMonths)
+
+	common.ApiSuccess(c, gin.H{
+		"appid": appID,
+		"state": state,
+	})
+}
+
+func WechatPayJsapiCheckout(c *gin.Context) {
+	var req jsapiCheckoutRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorMsg(c, "invalid request")
 		return
 	}
 	if req.Code == "" {
@@ -85,11 +125,31 @@ func WechatPayJsapiCheckout(c *gin.Context) {
 		return
 	}
 
-	tokenId := c.GetInt("token_id")
-	userId := c.GetInt("id")
-	if tokenId <= 0 || userId <= 0 {
-		common.ApiErrorMsg(c, "invalid token context")
-		return
+	var tokenId, userId, poolId, periodMonths int
+
+	if req.State != "" {
+		var ok bool
+		tokenId, poolId, periodMonths, ok = consumeStateToken(req.State)
+		if !ok {
+			common.ApiErrorMsg(c, "invalid or expired state token")
+			return
+		}
+	} else {
+		poolId = req.PoolId
+		periodMonths = 1
+		if poolId <= 0 {
+			common.ApiErrorMsg(c, "invalid request: pool_id or state required")
+			return
+		}
+		if req.PeriodMonths != nil && *req.PeriodMonths > 0 {
+			periodMonths = *req.PeriodMonths
+		}
+		tokenId = c.GetInt("token_id")
+		userId = c.GetInt("id")
+		if tokenId <= 0 || userId <= 0 {
+			common.ApiErrorMsg(c, "invalid token context")
+			return
+		}
 	}
 
 	token, err := model.GetTokenById(tokenId)
@@ -101,10 +161,12 @@ func WechatPayJsapiCheckout(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if token.UserId != userId {
+
+	if req.State == "" && token.UserId != userId {
 		common.ApiErrorMsg(c, "token not found")
 		return
 	}
+	userId = token.UserId
 
 	resolved, err := model.ResolvePoolForContext(token.UserId, token.Id, token.Group)
 	if err != nil {
@@ -119,7 +181,7 @@ func WechatPayJsapiCheckout(c *gin.Context) {
 		common.ApiErrorMsg(c, "no resolved pool for this token")
 		return
 	}
-	if req.PoolId != resolved.Id {
+	if poolId != resolved.Id {
 		common.ApiErrorMsg(c, "pool_id must match the resolved pool for this token")
 		return
 	}
@@ -129,10 +191,6 @@ func WechatPayJsapiCheckout(c *gin.Context) {
 		return
 	}
 
-	periodMonths := 1
-	if req.PeriodMonths != nil && *req.PeriodMonths > 0 {
-		periodMonths = *req.PeriodMonths
-	}
 	options, err := getPoolPeriodOptions(resolved.Id)
 	if err != nil {
 		common.ApiError(c, err)

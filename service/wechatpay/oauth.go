@@ -1,6 +1,7 @@
 package wechatpay
 
 import (
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
@@ -202,7 +203,7 @@ func GenerateChooseWxPaySign(appID string, timestamp int64, nonceStr, prepayID s
 	h.Write([]byte(raw))
 	digest := h.Sum(nil)
 
-	sig, err := rsa.SignPKCS1v15(rand.Reader, privateKey, nil, digest)
+	sig, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, digest)
 	if err != nil {
 		return "", fmt.Errorf("rsa sign: %w", err)
 	}
@@ -240,7 +241,7 @@ func GenerateJsapiPayParams(appID string, prepayID string, privateKey *rsa.Priva
 	h.Write([]byte(raw))
 	digest := h.Sum(nil)
 
-	sig, err := rsa.SignPKCS1v15(rand.Reader, privateKey, nil, digest)
+	sig, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, digest)
 	if err != nil {
 		return 0, "", "", "", "", fmt.Errorf("rsa sign: %w", err)
 	}
