@@ -149,6 +149,7 @@ func TestRequestTokenPoolSubscriptionWechatCheckout_ReusesPendingOrder(t *testin
 		BillingPeriodSeconds: 30 * 24 * 3600,
 		TradeNo:              existingTrade,
 		CodeUrl:              "weixin://wxpay/bizpayurl?pr=reuse",
+		PaymentType:          "native",
 		Status:               common.TopUpStatusPending,
 		CreateTime:           common.GetTimestamp(),
 	}).Error)

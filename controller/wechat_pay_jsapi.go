@@ -3,9 +3,11 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/wechatpay"
@@ -14,16 +16,17 @@ import (
 )
 
 type jsapiCheckoutRequest struct {
-	PoolId       int    `json:"pool_id"`
-	PeriodMonths *int   `json:"period_months,omitempty"`
-	State        string `json:"state"`
-	Code         string `json:"code"`
-	PageURL      string `json:"page_url"`
+	PoolId            int    `json:"pool_id"`
+	PeriodMonths      *int   `json:"period_months,omitempty"`
+	State             string `json:"state"`
+	Code              string `json:"code"`
+	PageURL           string `json:"page_url"`
+	UpgradeFromPoolId *int   `json:"upgrade_from_pool_id,omitempty"`
 }
 
 type jsapiConfigResponse struct {
 	AppId     string `json:"appId"`
-	Timestamp int64  `json:"timeStamp"`
+	Timestamp string `json:"timeStamp"`
 	NonceStr  string `json:"nonceStr"`
 	Package   string `json:"package"`
 	SignType  string `json:"signType"`
@@ -44,9 +47,105 @@ type jsapiCheckoutResponse struct {
 
 type wxConfigResponse struct {
 	AppId     string `json:"appId"`
-	Timestamp int64  `json:"timestamp"`
+	Timestamp string `json:"timestamp"`
 	NonceStr  string `json:"nonceStr"`
 	Signature string `json:"signature"`
+}
+
+// WechatPayJsapiOrderQuery is a public endpoint for querying a JSAPI order by trade_no.
+// It triggers reconciliation from WeChat so the caller can poll until success.
+func WechatPayJsapiOrderQuery(c *gin.Context) {
+	tradeNo := strings.TrimSpace(c.Query("trade_no"))
+	if tradeNo == "" {
+		common.ApiErrorMsg(c, "trade_no required")
+		return
+	}
+
+	order, err := model.GetTokenPoolSubscriptionOrderByTradeNo(tradeNo)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ApiErrorMsg(c, "order not found")
+			return
+		}
+		common.ApiError(c, err)
+		return
+	}
+	if order.PaymentType != "jsapi" {
+		common.ApiErrorMsg(c, "invalid order type")
+		return
+	}
+
+	reconciled, reconcileErr := reconcileTokenPoolSubscriptionOrderFromWeChat(c.Request.Context(), order)
+	if reconcileErr != nil {
+		logger.LogError(c, "wechat jsapi order query failed trade_no="+tradeNo+": "+reconcileErr.Error())
+	}
+
+	if reconciled {
+		order, err = model.GetTokenPoolSubscriptionOrderByTradeNo(tradeNo)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
+
+	poolName := poolDisplayNameFallback
+	if pool, poolErr := model.GetPoolById(order.PoolId); poolErr == nil && pool != nil {
+		poolName = poolDisplayName(pool)
+	}
+
+	common.ApiSuccess(c, gin.H{
+		"trade_no":               order.TradeNo,
+		"status":                 order.Status,
+		"amount_fen":             order.AmountTotalFen,
+		"currency":               order.Currency,
+		"pool_name":              poolName,
+		"period_months":          order.PeriodMonths,
+		"complete_time":          order.CompleteTime,
+		"reconciled_from_wechat": reconciled,
+	})
+}
+
+func buildJsapiCheckoutResponse(order *model.TokenPoolSubscriptionOrder, pool *model.Pool, periodMonths int, cfg *wechatpay.Config, pageURL string) (jsapiCheckoutResponse, error) {
+	timestamp, nonceStr, packageStr, signType, paySign, err := wechatpay.GenerateJsapiPayParams(cfg.AppID, order.PrepayId, cfg.PrivateKey)
+	if err != nil {
+		return jsapiCheckoutResponse{}, err
+	}
+
+	pageURL = wechatpay.StripTrailingHash(pageURL)
+	if pageURL == "" {
+		pageURL = service.GetCallbackAddress() + "/wechat-pay-800claw/"
+	}
+	wxConfigTimestamp := timestamp
+	wxConfigNonceStr := wechatpay.SnapNonceStr()
+	wxSignature, err := wechatpay.GenerateJsapiConfig(cfg.AppID, cfg.AppSecret, wxConfigTimestamp, wxConfigNonceStr, pageURL)
+	if err != nil {
+		return jsapiCheckoutResponse{}, err
+	}
+
+	baseAmountFen := computeAmountFen(pool.MonthlyPriceCny, periodMonths, 10000)
+	return jsapiCheckoutResponse{
+		PrepayId: order.PrepayId,
+		JsapiPayParams: jsapiConfigResponse{
+			AppId:     cfg.AppID,
+			Timestamp: strconv.FormatInt(timestamp, 10),
+			NonceStr:  nonceStr,
+			Package:   packageStr,
+			SignType:  signType,
+			PaySign:   paySign,
+		},
+		WxConfig: wxConfigResponse{
+			AppId:     cfg.AppID,
+			Timestamp: strconv.FormatInt(wxConfigTimestamp, 10),
+			NonceStr:  wxConfigNonceStr,
+			Signature: wxSignature,
+		},
+		PoolName:      poolDisplayName(pool),
+		AmountFen:     order.AmountTotalFen,
+		BaseAmountFen: baseAmountFen,
+		PeriodMonths:  periodMonths,
+		TradeNo:       order.TradeNo,
+		Status:        order.Status,
+	}, nil
 }
 
 func WechatPayJsapiAppid(c *gin.Context) {
@@ -76,8 +175,9 @@ func WechatPayJsapiAppid(c *gin.Context) {
 
 func WechatPayJsapiOauthParams(c *gin.Context) {
 	var req struct {
-		PoolId       int `json:"pool_id"`
-		PeriodMonths int `json:"period_months"`
+		PoolId            int `json:"pool_id"`
+		PeriodMonths      int `json:"period_months"`
+		UpgradeFromPoolId int `json:"upgrade_from_pool_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.PoolId <= 0 {
 		common.ApiErrorMsg(c, "invalid request: pool_id required")
@@ -106,7 +206,7 @@ func WechatPayJsapiOauthParams(c *gin.Context) {
 		return
 	}
 
-	state := generateStateToken(tokenId, req.PoolId, req.PeriodMonths)
+	state := generateStateToken(tokenId, req.PoolId, req.PeriodMonths, req.UpgradeFromPoolId)
 
 	common.ApiSuccess(c, gin.H{
 		"appid": appID,
@@ -125,11 +225,11 @@ func WechatPayJsapiCheckout(c *gin.Context) {
 		return
 	}
 
-	var tokenId, userId, poolId, periodMonths int
+	var tokenId, userId, poolId, periodMonths, upgradeFromPoolId int
 
 	if req.State != "" {
 		var ok bool
-		tokenId, poolId, periodMonths, ok = consumeStateToken(req.State)
+		tokenId, poolId, periodMonths, upgradeFromPoolId, ok = consumeStateToken(req.State)
 		if !ok {
 			common.ApiErrorMsg(c, "invalid or expired state token")
 			return
@@ -143,6 +243,9 @@ func WechatPayJsapiCheckout(c *gin.Context) {
 		}
 		if req.PeriodMonths != nil && *req.PeriodMonths > 0 {
 			periodMonths = *req.PeriodMonths
+		}
+		if req.UpgradeFromPoolId != nil && *req.UpgradeFromPoolId > 0 {
+			upgradeFromPoolId = *req.UpgradeFromPoolId
 		}
 		tokenId = c.GetInt("token_id")
 		userId = c.GetInt("id")
@@ -182,11 +285,41 @@ func WechatPayJsapiCheckout(c *gin.Context) {
 		return
 	}
 	if poolId != resolved.Id {
-		common.ApiErrorMsg(c, "pool_id must match the resolved pool for this token")
-		return
+		// Allow explicit upgrade purchases to a different pool in the same plan_group with a higher plan_tier.
+		if upgradeFromPoolId == 0 || upgradeFromPoolId != resolved.Id {
+			common.ApiErrorMsg(c, "pool_id must match the resolved pool for this token or be an upgrade target")
+			return
+		}
 	}
 
-	if !model.PoolRequiresPaidSubscription(resolved) {
+	// Determine target pool: either the resolved pool (renew) or an explicit upgrade target.
+	targetPool := resolved
+	if poolId != resolved.Id {
+		target, err := model.GetPoolById(poolId)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				common.ApiErrorMsg(c, "target pool not found")
+				return
+			}
+			common.ApiError(c, err)
+			return
+		}
+		if target == nil || target.Status != model.PoolStatusEnabled {
+			common.ApiErrorMsg(c, "target pool is not available")
+			return
+		}
+		if strings.TrimSpace(target.PlanGroup) == "" || target.PlanGroup != resolved.PlanGroup {
+			common.ApiErrorMsg(c, "target pool is not in the same plan_group as the current pool")
+			return
+		}
+		if target.PlanTier <= resolved.PlanTier {
+			common.ApiErrorMsg(c, "target pool must be a higher tier than the current pool")
+			return
+		}
+		targetPool = target
+	}
+
+	if !model.PoolRequiresPaidSubscription(targetPool) {
 		common.ApiErrorMsg(c, "pool has no monthly subscription price")
 		return
 	}
@@ -202,10 +335,48 @@ func WechatPayJsapiCheckout(c *gin.Context) {
 		return
 	}
 
-	amountFen := computeAmountFen(resolved.MonthlyPriceCny, option.PeriodMonths, option.DiscountRatioBp)
+	amountFen := computeAmountFen(targetPool.MonthlyPriceCny, option.PeriodMonths, option.DiscountRatioBp)
 	if amountFen <= 0 {
 		common.ApiErrorMsg(c, "invalid pool price")
 		return
+	}
+
+	// Compute upgrade credit from remaining old-pool time (only when this is an upgrade path).
+	isUpgrade := upgradeFromPoolId > 0 && upgradeFromPoolId != targetPool.Id
+	var creditSeconds int64
+	if isUpgrade {
+		fromPool, err := model.GetPoolById(upgradeFromPoolId)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				common.ApiErrorMsg(c, "upgrade_from_pool_id not found")
+				return
+			}
+			common.ApiError(c, err)
+			return
+		}
+		if fromPool == nil {
+			common.ApiErrorMsg(c, "upgrade_from_pool_id not found")
+			return
+		}
+		if strings.TrimSpace(fromPool.PlanGroup) == "" || fromPool.PlanGroup != targetPool.PlanGroup {
+			common.ApiErrorMsg(c, "upgrade_from_pool_id must share the same plan_group as the target pool")
+			return
+		}
+		if fromPool.PlanTier >= targetPool.PlanTier {
+			common.ApiErrorMsg(c, "upgrade_from_pool_id must be a lower tier than the target pool")
+			return
+		}
+		fromSub, err := model.GetTokenPoolSubscription(tokenId, upgradeFromPoolId)
+		if err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				common.ApiError(c, err)
+				return
+			}
+		}
+		nowTs := common.GetTimestamp()
+		if fromSub != nil && fromSub.PeriodEnd > nowTs {
+			creditSeconds = computeUpgradeCreditSeconds(fromSub.PeriodEnd-nowTs, fromPool.MonthlyPriceCny, targetPool.MonthlyPriceCny)
+		}
 	}
 
 	ctx := c.Request.Context()
@@ -220,6 +391,25 @@ func WechatPayJsapiCheckout(c *gin.Context) {
 		return
 	}
 
+	// Reuse a recent pending JSAPI order if it matches exactly.
+	now := common.GetTimestamp()
+	if pending, err := model.GetLatestPendingTokenPoolSubscriptionOrderByPaymentType(tokenId, targetPool.Id, "jsapi"); err == nil && pending != nil {
+		if pending.AmountTotalFen == amountFen &&
+			pending.PeriodMonths == option.PeriodMonths &&
+			pending.IsUpgrade == isUpgrade &&
+			pending.UpgradedFromPoolId == upgradeFromPoolId &&
+			pending.PrepayId != "" &&
+			now-pending.CreateTime <= model.TokenPoolSubscriptionPendingReuseSeconds {
+			resp, buildErr := buildJsapiCheckoutResponse(pending, targetPool, option.PeriodMonths, cfg, req.PageURL)
+			if buildErr != nil {
+				common.ApiErrorMsg(c, "failed to build checkout response")
+				return
+			}
+			common.ApiSuccess(c, resp)
+			return
+		}
+	}
+
 	openid, err := wechatpay.GetOpenid(cfg.AppID, cfg.AppSecret, req.Code)
 	if err != nil {
 		common.ApiErrorMsg(c, "failed to get openid: "+err.Error())
@@ -228,7 +418,7 @@ func WechatPayJsapiCheckout(c *gin.Context) {
 
 	notifyURL := service.GetCallbackAddress() + "/api/payment/wechat/notify"
 	tradeNo := genTokenPoolSubscriptionTradeNo()
-	desc := fmt.Sprintf("Pool subscription: %s", poolDisplayName(resolved))
+	desc := fmt.Sprintf("Pool subscription: %s", poolDisplayName(targetPool))
 
 	prepayID, err := wechatpay.JsapiPrepay(ctx, cfg, client, notifyURL, tradeNo, desc, amountFen, openid)
 	if err != nil {
@@ -236,18 +426,21 @@ func WechatPayJsapiCheckout(c *gin.Context) {
 		return
 	}
 
-	_ = model.ExpirePendingTokenPoolSubscriptionOrders(tokenId, resolved.Id, "")
+	_ = model.ExpirePendingTokenPoolSubscriptionOrders(tokenId, targetPool.Id, "")
 
 	order := &model.TokenPoolSubscriptionOrder{
 		UserId:               userId,
 		TokenId:              tokenId,
-		PoolId:               resolved.Id,
-		AmountCny:            resolved.MonthlyPriceCny,
+		PoolId:               targetPool.Id,
+		AmountCny:            targetPool.MonthlyPriceCny,
 		AmountTotalFen:       amountFen,
 		Currency:             "CNY",
-		BillingPeriodSeconds: resolved.BillingPeriodSeconds,
+		BillingPeriodSeconds: targetPool.BillingPeriodSeconds,
 		PeriodMonths:         option.PeriodMonths,
 		DiscountRatioBp:      option.DiscountRatioBp,
+		IsUpgrade:            isUpgrade,
+		UpgradedFromPoolId:   upgradeFromPoolId,
+		CreditSecondsGranted: creditSeconds,
 		TradeNo:              tradeNo,
 		PrepayId:             prepayID,
 		PaymentType:          "jsapi",
@@ -267,8 +460,9 @@ func WechatPayJsapiCheckout(c *gin.Context) {
 
 	pageURL := strings.TrimSpace(req.PageURL)
 	if pageURL == "" {
-		pageURL = service.GetCallbackAddress() + "/wechat-pay-800claw"
+		pageURL = service.GetCallbackAddress() + "/wechat-pay-800claw/"
 	}
+	pageURL = wechatpay.StripTrailingHash(pageURL)
 	wxConfigTimestamp := timestamp
 	wxConfigNonceStr := wechatpay.SnapNonceStr()
 	wxSignature, err := wechatpay.GenerateJsapiConfig(cfg.AppID, cfg.AppSecret, wxConfigTimestamp, wxConfigNonceStr, pageURL)
@@ -277,13 +471,13 @@ func WechatPayJsapiCheckout(c *gin.Context) {
 		return
 	}
 
-	baseAmountFen := computeAmountFen(resolved.MonthlyPriceCny, option.PeriodMonths, 10000)
+	baseAmountFen := computeAmountFen(targetPool.MonthlyPriceCny, option.PeriodMonths, 10000)
 
 	common.ApiSuccess(c, jsapiCheckoutResponse{
 		PrepayId: prepayID,
 		JsapiPayParams: jsapiConfigResponse{
 			AppId:     cfg.AppID,
-			Timestamp: timestamp,
+			Timestamp: strconv.FormatInt(timestamp, 10),
 			NonceStr:  nonceStr,
 			Package:   packageStr,
 			SignType:  signType,
@@ -291,11 +485,11 @@ func WechatPayJsapiCheckout(c *gin.Context) {
 		},
 		WxConfig: wxConfigResponse{
 			AppId:     cfg.AppID,
-			Timestamp: wxConfigTimestamp,
+			Timestamp: strconv.FormatInt(wxConfigTimestamp, 10),
 			NonceStr:  wxConfigNonceStr,
 			Signature: wxSignature,
 		},
-		PoolName:      poolDisplayName(resolved),
+		PoolName:      poolDisplayName(targetPool),
 		AmountFen:     amountFen,
 		BaseAmountFen: baseAmountFen,
 		PeriodMonths:  periodMonths,

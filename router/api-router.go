@@ -56,6 +56,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.POST("/verify", middleware.UserAuth(), middleware.CriticalRateLimit(), controller.UniversalVerify)
 		// JSAPI payment checkout (public - protected by state token)
 		apiRouter.POST("/usage/token/pool/subscription/wechat/jsapi/checkout", controller.WechatPayJsapiCheckout)
+		apiRouter.GET("/usage/token/pool/subscription/wechat/jsapi/order", controller.WechatPayJsapiOrderQuery)
 
 		userRoute := apiRouter.Group("/user")
 		{

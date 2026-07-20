@@ -309,7 +309,7 @@ func RequestTokenPoolSubscriptionWechatCheckout(c *gin.Context) {
 	}
 
 	now := common.GetTimestamp()
-	if pending, err := model.GetLatestPendingTokenPoolSubscriptionOrder(tokenId, pool.Id); err == nil && pending != nil {
+	if pending, err := model.GetLatestPendingTokenPoolSubscriptionOrderByPaymentType(tokenId, pool.Id, "native"); err == nil && pending != nil {
 		if pending.AmountTotalFen == amountFen &&
 			pending.PeriodMonths == option.PeriodMonths &&
 			pending.IsUpgrade == isUpgrade &&
@@ -351,19 +351,20 @@ func RequestTokenPoolSubscriptionWechatCheckout(c *gin.Context) {
 	order := &model.TokenPoolSubscriptionOrder{
 		UserId:               userId,
 		TokenId:              tokenId,
-		PoolId:                pool.Id,
-		AmountCny:             pool.MonthlyPriceCny,
-		AmountTotalFen:        amountFen,
-		Currency:              cur,
-		BillingPeriodSeconds:  period,
-		PeriodMonths:          option.PeriodMonths,
-		DiscountRatioBp:       option.DiscountRatioBp,
-		IsUpgrade:             isUpgrade,
-		UpgradedFromPoolId:    upgradeFromPoolId,
-		CreditSecondsGranted:  creditSeconds,
-		TradeNo:               tradeNo,
-		CodeUrl:               codeURL,
-		Status:                common.TopUpStatusPending,
+		PoolId:               pool.Id,
+		AmountCny:            pool.MonthlyPriceCny,
+		AmountTotalFen:       amountFen,
+		Currency:             cur,
+		BillingPeriodSeconds: period,
+		PeriodMonths:         option.PeriodMonths,
+		DiscountRatioBp:      option.DiscountRatioBp,
+		IsUpgrade:            isUpgrade,
+		UpgradedFromPoolId:   upgradeFromPoolId,
+		CreditSecondsGranted: creditSeconds,
+		TradeNo:              tradeNo,
+		CodeUrl:              codeURL,
+		PaymentType:          "native",
+		Status:               common.TopUpStatusPending,
 	}
 	if err := model.InsertTokenPoolSubscriptionOrder(order); err != nil {
 		logger.LogError(c, "insert token pool subscription order failed: "+err.Error())

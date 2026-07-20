@@ -1150,8 +1150,18 @@ export const usePoolsData = () => {
           </Typography.Text>
         ),
       },
-      { title: 'Created', dataIndex: 'create_time', width: 110 },
-      { title: 'Completed', dataIndex: 'complete_time', width: 110 },
+      {
+        title: 'Created',
+        dataIndex: 'create_time',
+        width: 170,
+        render: (v) => formatTokenSubUnix(v),
+      },
+      {
+        title: 'Completed',
+        dataIndex: 'complete_time',
+        width: 170,
+        render: (v) => formatTokenSubUnix(v),
+      },
     ],
     [t],
   );

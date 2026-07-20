@@ -103,6 +103,26 @@ func GetLatestPendingTokenPoolSubscriptionOrder(tokenId, poolId int) (*TokenPool
 	return &o, nil
 }
 
+func GetLatestPendingTokenPoolSubscriptionOrderByPaymentType(tokenId, poolId int, paymentType string) (*TokenPoolSubscriptionOrder, error) {
+	if tokenId <= 0 || poolId <= 0 {
+		return nil, errors.New("invalid token_id or pool_id")
+	}
+	var o TokenPoolSubscriptionOrder
+	q := DB.Where("token_id = ? AND pool_id = ? AND status = ?", tokenId, poolId, common.TopUpStatusPending)
+	// For native orders, also match empty payment_type for backward compatibility
+	// with rows created before PaymentType was explicitly set.
+	if paymentType == "native" {
+		q = q.Where("payment_type = ? OR payment_type = ?", paymentType, "")
+	} else {
+		q = q.Where("payment_type = ?", paymentType)
+	}
+	err := q.Order("id DESC").First(&o).Error
+	if err != nil {
+		return nil, err
+	}
+	return &o, nil
+}
+
 func GetTokenPoolSubscriptionOrderForToken(tradeNo string, tokenId int) (*TokenPoolSubscriptionOrder, error) {
 	if tradeNo == "" {
 		return nil, errors.New("empty trade_no")

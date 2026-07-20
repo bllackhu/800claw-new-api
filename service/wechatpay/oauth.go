@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -207,7 +208,7 @@ func GenerateChooseWxPaySign(appID string, timestamp int64, nonceStr, prepayID s
 	if err != nil {
 		return "", fmt.Errorf("rsa sign: %w", err)
 	}
-	return hex.EncodeToString(sig), nil
+	return base64.StdEncoding.EncodeToString(sig), nil
 }
 
 func GenerateNonceStr() string {
@@ -245,7 +246,7 @@ func GenerateJsapiPayParams(appID string, prepayID string, privateKey *rsa.Priva
 	if err != nil {
 		return 0, "", "", "", "", fmt.Errorf("rsa sign: %w", err)
 	}
-	paySign = hex.EncodeToString(sig)
+	paySign = base64.StdEncoding.EncodeToString(sig)
 	return
 }
 
@@ -271,7 +272,7 @@ func IsJsapiConfigured(cfg *Config) bool {
 	return cfg != nil && cfg.AppID != "" && cfg.AppSecret != "" && cfg.IsComplete()
 }
 
-func stripTrailingHash(pageURL string) string {
+func StripTrailingHash(pageURL string) string {
 	if idx := strings.Index(pageURL, "#"); idx >= 0 {
 		return pageURL[:idx]
 	}

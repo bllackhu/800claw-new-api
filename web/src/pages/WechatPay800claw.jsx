@@ -162,7 +162,7 @@ function DebugPanel({ logs, open, onToggle }) {
 }
 
 function DevStateSwitcher({ current, onChange }) {
-  const states = ['loading', 'ready', 'error', 'failed', 'cancelled', 'success'];
+  const states = ['loading', 'ready', 'error', 'failed', 'cancelled', 'verifying', 'timeout', 'success'];
   return (
     <div style={{ position: 'fixed', top: 12, left: 12, zIndex: 9999, background: 'rgba(0,0,0,0.85)', borderRadius: 8, padding: '8px 10px', backdropFilter: 'blur(4px)' }}>
       <div style={{ color: '#aaa', fontSize: 10, marginBottom: 6, fontWeight: 600 }}>DEV MOCK</div>
@@ -194,6 +194,8 @@ export default function WechatPay800claw() {
   const [state, setState] = useState('loading');
   const [error, setError] = useState('');
   const [checkout, setCheckout] = useState(null);
+  const pollIntervalRef = useRef(null);
+  const pollTimeoutRef = useRef(null);
 
   const isDebug = useRef(new URLSearchParams(window.location.search).get('debug') === '1').current;
   const [panelOpen, setPanelOpen] = useState(false);
@@ -336,6 +338,59 @@ export default function WechatPay800claw() {
     initPayment();
   }, [initPayment]);
 
+  const pollOrderStatus = useCallback(async (tradeNo) => {
+    try {
+      const resp = await fetch(`${API_BASE}/api/usage/token/pool/subscription/wechat/jsapi/order?trade_no=${encodeURIComponent(tradeNo)}`);
+      const raw = await resp.json();
+      const data = raw.data || raw;
+      addLog('poll-order', { status: data.status, reconciled: data.reconciled_from_wechat });
+
+      if (data.status === 'success') {
+        clearInterval(pollIntervalRef.current);
+        clearTimeout(pollTimeoutRef.current);
+        setState('success');
+        return true;
+      }
+      if (data.status === 'expired' || data.status === 'failed') {
+        clearInterval(pollIntervalRef.current);
+        clearTimeout(pollTimeoutRef.current);
+        setError('订单已过期或支付失败');
+        setState('failed');
+        return true;
+      }
+      return false;
+    } catch (e) {
+      addLog('poll-err', e?.message);
+      return false;
+    }
+  }, [addLog]);
+
+  const startPolling = useCallback((tradeNo) => {
+    setState('verifying');
+    addLog('poll-start', { trade_no: tradeNo });
+
+    // immediate first check
+    pollOrderStatus(tradeNo);
+
+    pollIntervalRef.current = setInterval(() => {
+      pollOrderStatus(tradeNo);
+    }, 2500);
+
+    pollTimeoutRef.current = setTimeout(() => {
+      clearInterval(pollIntervalRef.current);
+      addLog('poll-timeout', 'polling timed out');
+      setError('支付状态确认超时，请稍后刷新页面查看');
+      setState('timeout');
+    }, 60000);
+  }, [addLog, pollOrderStatus]);
+
+  useEffect(() => {
+    return () => {
+      clearInterval(pollIntervalRef.current);
+      clearTimeout(pollTimeoutRef.current);
+    };
+  }, []);
+
   const handlePay = useCallback(() => {
     if (!checkout || !window.wx) {
       addLog('pay-check', { checkout: !!checkout, wx_sdk: !!window.wx });
@@ -384,7 +439,11 @@ export default function WechatPay800claw() {
         paySign: jsapi_pay_params.paySign,
         success: () => {
           addLog('pay-cb', 'success');
-          setState('success');
+          if (checkout?.trade_no) {
+            startPolling(checkout.trade_no);
+          } else {
+            setState('success');
+          }
         },
         cancel: () => {
           addLog('pay-cb', 'cancel');
@@ -403,7 +462,7 @@ export default function WechatPay800claw() {
       setError(err?.errMsg || '微信 SDK 初始化失败');
       setState('error');
     });
-  }, [checkout, addLog]);
+  }, [checkout, addLog, startPolling]);
 
   const closePage = useCallback(() => {
     if (window.WeixinJSBridge) window.WeixinJSBridge.call('closeWindow');
@@ -415,13 +474,13 @@ export default function WechatPay800claw() {
 
   // dev: allow state switch without reload
   const handleMockStateChange = useCallback((next) => {
-    if (next === 'ready' || next === 'success' || next === 'cancelled' || next === 'failed') {
+    if (next === 'ready' || next === 'success' || next === 'cancelled' || next === 'failed' || next === 'verifying' || next === 'timeout') {
       setCheckout(MOCK_CHECKOUT);
     } else {
       setCheckout(null);
     }
-    if (next === 'error' || next === 'failed') {
-      setError('支付验证签名失败');
+    if (next === 'error' || next === 'failed' || next === 'timeout') {
+      setError(next === 'timeout' ? '支付状态确认超时，请稍后刷新页面查看' : '支付验证签名失败');
     } else {
       setError('');
     }
@@ -433,6 +492,41 @@ export default function WechatPay800claw() {
     return (
       <CardShell>
         <div style={{ color: C.text3, fontSize: '12px', marginBottom: 20 }}>正在准备支付...</div>
+        {IS_DEV && <DevStateSwitcher current={state} onChange={handleMockStateChange} />}
+        {isDebug && <DebugPanel logs={logsRef.current} open={panelOpen} onToggle={() => setPanelOpen((v) => !v)} />}
+      </CardShell>
+    );
+  }
+
+  if (state === 'verifying') {
+    return (
+      <CardShell>
+        <div style={{ color: C.green, fontSize: '20px', fontWeight: 700, marginTop: 16 }}>支付成功</div>
+        <div className="mb-10" style={{ color: C.text2, fontSize: '14px', marginTop: 8 }}>正在确认订单状态，请稍候...</div>
+        <div style={{ color: C.text3, fontSize: '13px' }}>
+          {checkout?.pool_name || ''} / {periodLabel(checkout?.period_months)}
+        </div>
+        <div style={{ color: C.brand, fontSize: '28px', fontWeight: 600, marginTop: 12 }}>
+          <span style={{ fontSize: '14px' }}>¥</span>{formatFen(checkout?.amount_fen)}
+        </div>
+        {IS_DEV && <DevStateSwitcher current={state} onChange={handleMockStateChange} />}
+        {isDebug && <DebugPanel logs={logsRef.current} open={panelOpen} onToggle={() => setPanelOpen((v) => !v)} />}
+      </CardShell>
+    );
+  }
+
+  if (state === 'timeout') {
+    return (
+      <CardShell>
+        <div className="mb-2" style={{ color: C.text, fontSize: '18px', fontWeight: 600, marginTop: 16 }}>状态确认超时</div>
+        <div className="mb-10" style={{ color: C.text2, fontSize: '14px' }}>{error || '支付状态确认超时，请稍后刷新页面查看'}</div>
+        <button
+          onClick={closePage}
+          className="w-full rounded-xl py-3 text-base font-semibold"
+          style={{ background: C.green, color: '#fff', border: 'none', height: '48px', cursor: 'pointer' }}
+        >
+          完成
+        </button>
         {IS_DEV && <DevStateSwitcher current={state} onChange={handleMockStateChange} />}
         {isDebug && <DebugPanel logs={logsRef.current} open={panelOpen} onToggle={() => setPanelOpen((v) => !v)} />}
       </CardShell>
