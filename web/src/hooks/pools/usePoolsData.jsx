@@ -1059,6 +1059,31 @@ export const usePoolsData = () => {
     [loadPools, poolPage, t],
   );
 
+  const reconcileOrder = useCallback(
+    async (tradeNo) => {
+      try {
+        const res = await API.post(`/api/pool/subscription_orders/${encodeURIComponent(tradeNo)}/reconcile`);
+        const { success, message, data } = res.data;
+        if (!success) {
+          showError(message || t('Failed to reconcile order'));
+          return;
+        }
+        if (data?.reconciled) {
+          showSuccess(t('Order reconciled successfully'));
+        } else if (data?.message) {
+          showSuccess(data.message);
+        } else {
+          showSuccess(t('Order status checked'));
+        }
+        // refresh current page
+        loadSubscriptionOrders(subOrderPage);
+      } catch (error) {
+        showError(getErrorMessage(error, t('Failed to reconcile order')));
+      }
+    },
+    [t, subOrderPage, loadSubscriptionOrders],
+  );
+
   const subOrderColumns = useMemo(
     () => [
       { title: 'ID', dataIndex: 'id', width: 72 },
@@ -1162,8 +1187,25 @@ export const usePoolsData = () => {
         width: 170,
         render: (v) => formatTokenSubUnix(v),
       },
+      {
+        title: t('Action'),
+        dataIndex: 'operate',
+        width: 120,
+        render: (_, record) =>
+          record.status === 'pending' ? (
+            <Button
+              size='small'
+              type='tertiary'
+              onClick={() => reconcileOrder(record.trade_no)}
+            >
+              {t('Refresh')}
+            </Button>
+          ) : (
+            '—'
+          ),
+      },
     ],
-    [t],
+    [t, reconcileOrder],
   );
 
   const tokenSubColumns = useMemo(
@@ -1526,6 +1568,7 @@ export const usePoolsData = () => {
     subOrderLoading,
     loadSubscriptionOrders,
     subOrderColumns,
+    reconcileOrder,
 
     tokenSubItems,
     tokenSubTotal,

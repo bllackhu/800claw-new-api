@@ -1,12 +1,15 @@
 package controller
 
 import (
+	"errors"
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type tokenPoolSubscriptionAdminItem struct {
@@ -101,6 +104,55 @@ func PutTokenPoolSubscription(c *gin.Context) {
 	}
 	enrichTokenPoolSubscriptionItems([]tokenPoolSubscriptionAdminItem{item})
 	common.ApiSuccess(c, item)
+}
+
+// AdminReconcileWechatOrder triggers WeChat order status query for a given trade_no (admin only).
+// POST /api/pool/subscription_orders/:trade_no/reconcile
+func AdminReconcileWechatOrder(c *gin.Context) {
+	tradeNo := strings.TrimSpace(c.Param("trade_no"))
+	if tradeNo == "" {
+		common.ApiErrorMsg(c, "trade_no required")
+		return
+	}
+
+	order, err := model.GetTokenPoolSubscriptionOrderByTradeNo(tradeNo)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ApiErrorMsg(c, "order not found")
+			return
+		}
+		common.ApiError(c, err)
+		return
+	}
+
+	if order.Status != common.TopUpStatusPending {
+		common.ApiSuccess(c, gin.H{
+			"order":      order,
+			"reconciled": false,
+			"message":    "order is not pending, no reconcile needed",
+		})
+		return
+	}
+
+	reconciled, reconcileErr := reconcileTokenPoolSubscriptionOrderFromWeChat(c.Request.Context(), order)
+	if reconcileErr != nil {
+		logger.LogError(c, "admin reconcile failed trade_no="+tradeNo+": "+reconcileErr.Error())
+		common.ApiErrorMsg(c, "reconcile failed: "+reconcileErr.Error())
+		return
+	}
+
+	if reconciled {
+		order, err = model.GetTokenPoolSubscriptionOrderByTradeNo(tradeNo)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
+
+	common.ApiSuccess(c, gin.H{
+		"order":      order,
+		"reconciled": reconciled,
+	})
 }
 
 func enrichTokenPoolSubscriptionItems(items []tokenPoolSubscriptionAdminItem) {
