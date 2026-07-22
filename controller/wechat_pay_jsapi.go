@@ -3,6 +3,8 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 
@@ -113,7 +115,7 @@ func buildJsapiCheckoutResponse(order *model.TokenPoolSubscriptionOrder, pool *m
 
 	pageURL = wechatpay.StripTrailingHash(pageURL)
 	if pageURL == "" {
-		pageURL = service.GetCallbackAddress() + "/wechat-pay-800claw/"
+		pageURL = getJsapiRedirectURI()
 	}
 	wxConfigTimestamp := timestamp
 	wxConfigNonceStr := wechatpay.SnapNonceStr()
@@ -173,6 +175,13 @@ func WechatPayJsapiAppid(c *gin.Context) {
 	})
 }
 
+func getJsapiRedirectURI() string {
+	if uri := strings.TrimSpace(os.Getenv("WECHATPAY_JSAPI_REDIRECT_URI")); uri != "" {
+		return uri
+	}
+	return service.GetCallbackAddress() + "/wechat-pay-800claw/"
+}
+
 func WechatPayJsapiOauthParams(c *gin.Context) {
 	var req struct {
 		PoolId            int `json:"pool_id"`
@@ -208,9 +217,18 @@ func WechatPayJsapiOauthParams(c *gin.Context) {
 
 	state := generateStateToken(tokenId, req.PoolId, req.PeriodMonths, req.UpgradeFromPoolId)
 
+	redirectURI := getJsapiRedirectURI()
+	jsapiOauthPaymentURL := fmt.Sprintf(
+		"https://open.weixin.qq.com/connect/oauth2/authorize?appid=%s&redirect_uri=%s&response_type=code&scope=snsapi_base&state=%s#wechat_redirect",
+		url.QueryEscape(appID),
+		url.QueryEscape(redirectURI),
+		url.QueryEscape(state),
+	)
+
 	common.ApiSuccess(c, gin.H{
-		"appid": appID,
-		"state": state,
+		"appid":                    appID,
+		"state":                    state,
+		"jsapi_oauth_payment_url":  jsapiOauthPaymentURL,
 	})
 }
 
@@ -459,10 +477,10 @@ func WechatPayJsapiCheckout(c *gin.Context) {
 	}
 
 	pageURL := strings.TrimSpace(req.PageURL)
-	if pageURL == "" {
-		pageURL = service.GetCallbackAddress() + "/wechat-pay-800claw/"
-	}
 	pageURL = wechatpay.StripTrailingHash(pageURL)
+	if pageURL == "" {
+		pageURL = getJsapiRedirectURI()
+	}
 	wxConfigTimestamp := timestamp
 	wxConfigNonceStr := wechatpay.SnapNonceStr()
 	wxSignature, err := wechatpay.GenerateJsapiConfig(cfg.AppID, cfg.AppSecret, wxConfigTimestamp, wxConfigNonceStr, pageURL)

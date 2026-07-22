@@ -98,6 +98,7 @@ KEY_INLINE="$(lookup WECHATPAY_MCH_PRIVATE_KEY)"
 PUB_ID="$(lookup WECHATPAY_PUBLIC_KEY_ID)"
 PUB_PATH="$(lookup WECHATPAY_PUBLIC_KEY_PATH)"
 PUB_INLINE="$(lookup WECHATPAY_PUBLIC_KEY)"
+JSAPI_REDIRECT="$(lookup WECHATPAY_JSAPI_REDIRECT_URI)"
 
 echo ""
 echo "--- Required variables ---"
@@ -193,6 +194,14 @@ else
 fi
 
 echo ""
+echo "--- Optional variables ---"
+if [[ -n "${JSAPI_REDIRECT// }" ]]; then
+  ok "WECHATPAY_JSAPI_REDIRECT_URI is set: ${JSAPI_REDIRECT}"
+else
+  warn "WECHATPAY_JSAPI_REDIRECT_URI is not set (will fall back to GetCallbackAddress + /wechat-pay-800claw/)"
+fi
+
+echo ""
 echo "--- Non-secret preview ---"
 [[ -n "$APP_ID" ]] && echo "  WECHATPAY_APP_ID=${APP_ID}"
 [[ -n "$MCH_ID" ]] && echo "  WECHATPAY_MCH_ID=${MCH_ID}"
@@ -203,6 +212,7 @@ echo "--- Non-secret preview ---"
 [[ -n "$PUB_ID" ]] && echo "  WECHATPAY_PUBLIC_KEY_ID=${PUB_ID}"
 [[ -n "$PUB_PATH" ]] && echo "  WECHATPAY_PUBLIC_KEY_PATH=${PUB_PATH}"
 [[ -n "$PUB_INLINE" ]] && echo "  WECHATPAY_PUBLIC_KEY=<${#PUB_INLINE} chars PEM, hidden>"
+[[ -n "$JSAPI_REDIRECT" ]] && echo "  WECHATPAY_JSAPI_REDIRECT_URI=${JSAPI_REDIRECT}"
 
 echo ""
 if [[ "$fail" -eq 0 ]]; then

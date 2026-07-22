@@ -3,6 +3,7 @@
 // Configuration (environment):
 //   WECHATPAY_APP_ID                 — WeChat appid (required for Native + JSAPI prepay)
 //   WECHATPAY_APP_SECRET             — WeChat app secret (required for JSAPI OAuth + jsapi_ticket)
+//   WECHATPAY_JSAPI_REDIRECT_URI     — WeChat JSAPI OAuth redirect_uri (optional; falls back to GetCallbackAddress + "/wechat-pay-800claw/")
 //   WECHATPAY_MCH_ID                 — merchant id
 //   WECHATPAY_MCH_CERTIFICATE_SERIAL — merchant API cert serial number
 //   WECHATPAY_MCH_API_V3_KEY         — API v3 key (32 bytes)
