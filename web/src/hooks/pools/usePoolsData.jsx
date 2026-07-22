@@ -1156,6 +1156,17 @@ export const usePoolsData = () => {
       },
       { title: 'Status', dataIndex: 'status', width: 100 },
       {
+        title: t('Payment type'),
+        dataIndex: 'payment_type',
+        width: 100,
+        render: (v) => {
+          const type = v === 'jsapi' ? 'jsapi' : 'native';
+          return (
+            <Tag color={type === 'jsapi' ? 'green' : 'blue'}>{type}</Tag>
+          );
+        },
+      },
+      {
         title: 'Trade no',
         dataIndex: 'trade_no',
         width: 160,

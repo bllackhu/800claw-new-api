@@ -315,3 +315,73 @@ func TestGrantFirstRequestTrial_ConcurrentInsertsOnlyOneWins(t *testing.T) {
 		Count(&count).Error)
 	require.Equal(t, int64(1), count)
 }
+
+func TestExpirePendingTokenPoolSubscriptionOrders_ScopedByPaymentType(t *testing.T) {
+	setupTokenPoolSubscriptionAdminTestDB(t)
+	now := common.GetTimestamp()
+	require.NoError(t, InsertTokenPoolSubscriptionOrder(&TokenPoolSubscriptionOrder{
+		UserId: 1, TokenId: 1, PoolId: 10, AmountTotalFen: 4000, Currency: "CNY",
+		TradeNo: "TPNATIVE1", PaymentType: "native", Status: common.TopUpStatusPending, CreateTime: now,
+	}))
+	require.NoError(t, InsertTokenPoolSubscriptionOrder(&TokenPoolSubscriptionOrder{
+		UserId: 1, TokenId: 1, PoolId: 10, AmountTotalFen: 4000, Currency: "CNY",
+		TradeNo: "TPJSAPI1", PaymentType: "jsapi", Status: common.TopUpStatusPending, CreateTime: now,
+	}))
+
+	require.NoError(t, ExpirePendingTokenPoolSubscriptionOrders(1, 10, "jsapi", ""))
+
+	var native, jsapi TokenPoolSubscriptionOrder
+	require.NoError(t, DB.Where("trade_no = ?", "TPNATIVE1").First(&native).Error)
+	require.NoError(t, DB.Where("trade_no = ?", "TPJSAPI1").First(&jsapi).Error)
+	require.Equal(t, common.TopUpStatusPending, native.Status)
+	require.Equal(t, common.TopUpStatusExpired, jsapi.Status)
+}
+
+func TestExpirePendingTokenPoolSubscriptionOrders_SameTypeReplaces(t *testing.T) {
+	setupTokenPoolSubscriptionAdminTestDB(t)
+	now := common.GetTimestamp()
+	require.NoError(t, InsertTokenPoolSubscriptionOrder(&TokenPoolSubscriptionOrder{
+		UserId: 1, TokenId: 1, PoolId: 10, AmountTotalFen: 4000, Currency: "CNY",
+		TradeNo: "TPOLDNATIVE", PaymentType: "native", Status: common.TopUpStatusPending, CreateTime: now,
+	}))
+	require.NoError(t, InsertTokenPoolSubscriptionOrder(&TokenPoolSubscriptionOrder{
+		UserId: 1, TokenId: 1, PoolId: 10, AmountTotalFen: 4000, Currency: "CNY",
+		TradeNo: "TPJSAPIKEEP", PaymentType: "jsapi", Status: common.TopUpStatusPending, CreateTime: now,
+	}))
+
+	require.NoError(t, ExpirePendingTokenPoolSubscriptionOrders(1, 10, "native", ""))
+
+	var oldNative, jsapi TokenPoolSubscriptionOrder
+	require.NoError(t, DB.Where("trade_no = ?", "TPOLDNATIVE").First(&oldNative).Error)
+	require.NoError(t, DB.Where("trade_no = ?", "TPJSAPIKEEP").First(&jsapi).Error)
+	require.Equal(t, common.TopUpStatusExpired, oldNative.Status)
+	require.Equal(t, common.TopUpStatusPending, jsapi.Status)
+}
+
+func TestCompleteTokenPoolSubscriptionFromNotify_ExpiresSiblingPending(t *testing.T) {
+	setupTokenPoolSubscriptionAdminTestDB(t)
+	now := common.GetTimestamp()
+	require.NoError(t, InsertTokenPoolSubscriptionOrder(&TokenPoolSubscriptionOrder{
+		UserId: 1, TokenId: 1, PoolId: 10, AmountCny: 40, AmountTotalFen: 4000, Currency: "CNY",
+		BillingPeriodSeconds: 30 * 86400, TradeNo: "TPPAIDJSAPI", PaymentType: "jsapi",
+		Status: common.TopUpStatusPending, CreateTime: now,
+	}))
+	require.NoError(t, InsertTokenPoolSubscriptionOrder(&TokenPoolSubscriptionOrder{
+		UserId: 1, TokenId: 1, PoolId: 10, AmountCny: 40, AmountTotalFen: 4000, Currency: "CNY",
+		BillingPeriodSeconds: 30 * 86400, TradeNo: "TPPENDNATIVE", PaymentType: "native",
+		Status: common.TopUpStatusPending, CreateTime: now,
+	}))
+
+	require.NoError(t, CompleteTokenPoolSubscriptionFromNotify("TPPAIDJSAPI", "wx-txn-sib", `{"ok":true}`, 4000, "CNY"))
+
+	var paid, sibling TokenPoolSubscriptionOrder
+	require.NoError(t, DB.Where("trade_no = ?", "TPPAIDJSAPI").First(&paid).Error)
+	require.NoError(t, DB.Where("trade_no = ?", "TPPENDNATIVE").First(&sibling).Error)
+	require.Equal(t, common.TopUpStatusSuccess, paid.Status)
+	require.Equal(t, common.TopUpStatusExpired, sibling.Status)
+
+	ok, err := TokenHasActivePoolSubscription(1, 10)
+	require.NoError(t, err)
+	require.True(t, ok)
+}
+

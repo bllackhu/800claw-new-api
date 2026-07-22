@@ -346,7 +346,7 @@ func RequestTokenPoolSubscriptionWechatCheckout(c *gin.Context) {
 		return
 	}
 
-	_ = model.ExpirePendingTokenPoolSubscriptionOrders(tokenId, pool.Id, "")
+	_ = model.ExpirePendingTokenPoolSubscriptionOrders(tokenId, pool.Id, "native", "")
 
 	order := &model.TokenPoolSubscriptionOrder{
 		UserId:               userId,

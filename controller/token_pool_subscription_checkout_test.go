@@ -352,3 +352,68 @@ func TestGetTokenPoolSubscriptionOrderSelf_ReconcileSuccess(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, active)
 }
+
+func TestRequestTokenPoolSubscriptionWechatCheckout_DoesNotExpireJsapiPending(t *testing.T) {
+	db := setupTokenPoolSubscriptionCheckoutTestDB(t)
+	stubWechatpayClient(t)
+	token := seedToken(t, db, 49, "cross-tok", "cross-checkout-key-1234")
+	resolved := &model.Pool{Name: "cross-pool", Status: model.PoolStatusEnabled, MonthlyPriceCny: 40}
+	require.NoError(t, db.Create(resolved).Error)
+	require.NoError(t, db.Create(&model.PoolBinding{
+		BindingType:  model.PoolBindingTypeToken,
+		BindingValue: strconv.Itoa(token.Id),
+		PoolId:       resolved.Id,
+		Enabled:      true,
+	}).Error)
+
+	require.NoError(t, db.Create(&model.TokenPoolSubscriptionOrder{
+		UserId:         token.UserId,
+		TokenId:        token.Id,
+		PoolId:         resolved.Id,
+		AmountTotalFen: 4000,
+		Currency:       "CNY",
+		TradeNo:        "TPJSAPIPEND",
+		PaymentType:    "jsapi",
+		PrepayId:       "prepay-jsapi-1",
+		Status:         common.TopUpStatusPending,
+		CreateTime:     common.GetTimestamp(),
+	}).Error)
+
+	nativePrepayFunc = func(ctx context.Context, cfg *wechatpay.Config, client *core.Client, notifyURL, tradeNo, description string, amountFen int64) (string, error) {
+		return "weixin://wxpay/bizpayurl?pr=cross", nil
+	}
+	t.Cleanup(func() {
+		nativePrepayFunc = wechatpay.NativePrepay
+	})
+
+	body, _ := json.Marshal(map[string]int{"pool_id": resolved.Id})
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/usage/token/pool/subscription/wechat/checkout", bytes.NewReader(body))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	ctx.Set("token_id", token.Id)
+	ctx.Set("id", token.UserId)
+
+	RequestTokenPoolSubscriptionWechatCheckout(ctx)
+
+	var resp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			TradeNo string `json:"trade_no"`
+			Reused  bool   `json:"reused"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.True(t, resp.Success)
+	require.False(t, resp.Data.Reused)
+
+	var jsapiOrder model.TokenPoolSubscriptionOrder
+	require.NoError(t, db.Where("trade_no = ?", "TPJSAPIPEND").First(&jsapiOrder).Error)
+	require.Equal(t, common.TopUpStatusPending, jsapiOrder.Status)
+
+	var nativeOrder model.TokenPoolSubscriptionOrder
+	require.NoError(t, db.Where("trade_no = ?", resp.Data.TradeNo).First(&nativeOrder).Error)
+	require.Equal(t, "native", nativeOrder.PaymentType)
+	require.Equal(t, common.TopUpStatusPending, nativeOrder.Status)
+}
+

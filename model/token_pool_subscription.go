@@ -138,13 +138,26 @@ func GetTokenPoolSubscriptionOrderForToken(tradeNo string, tokenId int) (*TokenP
 	return &o, nil
 }
 
-// ExpirePendingTokenPoolSubscriptionOrders marks other pending orders for the pair as expired.
-func ExpirePendingTokenPoolSubscriptionOrders(tokenId, poolId int, exceptTradeNo string) error {
-	if tokenId <= 0 || poolId <= 0 {
+// ExpirePendingTokenPoolSubscriptionOrders marks pending orders for the pair as expired.
+// When paymentType is non-empty, only that rail is expired (native also matches empty
+// payment_type for legacy rows). When paymentType is empty, all payment types are expired.
+func ExpirePendingTokenPoolSubscriptionOrders(tokenId, poolId int, paymentType, exceptTradeNo string) error {
+	return expirePendingTokenPoolSubscriptionOrders(DB, tokenId, poolId, paymentType, exceptTradeNo)
+}
+
+func expirePendingTokenPoolSubscriptionOrders(db *gorm.DB, tokenId, poolId int, paymentType, exceptTradeNo string) error {
+	if tokenId <= 0 || poolId <= 0 || db == nil {
 		return nil
 	}
-	q := DB.Model(&TokenPoolSubscriptionOrder{}).
+	q := db.Model(&TokenPoolSubscriptionOrder{}).
 		Where("token_id = ? AND pool_id = ? AND status = ?", tokenId, poolId, common.TopUpStatusPending)
+	if paymentType != "" {
+		if paymentType == "native" {
+			q = q.Where("payment_type = ? OR payment_type = ?", paymentType, "")
+		} else {
+			q = q.Where("payment_type = ?", paymentType)
+		}
+	}
 	if exceptTradeNo != "" {
 		q = q.Where("trade_no <> ?", exceptTradeNo)
 	}
@@ -291,11 +304,15 @@ func CompleteTokenPoolSubscriptionFromNotify(tradeNo, wechatTxnId, rawJSON strin
 		}
 		now := common.GetTimestamp()
 		if err := tx.Model(&order).Updates(map[string]interface{}{
-			"status":                 common.TopUpStatusSuccess,
+			"status":                common.TopUpStatusSuccess,
 			"wechat_transaction_id": wechatTxnId,
-			"raw_notify":             rawJSON,
-			"complete_time":          now,
+			"raw_notify":            rawJSON,
+			"complete_time":         now,
 		}).Error; err != nil {
+			return err
+		}
+		// Invalidate sibling pending checkouts (other payment types / superseded QR/JSAPI).
+		if err := expirePendingTokenPoolSubscriptionOrders(tx, order.TokenId, order.PoolId, "", order.TradeNo); err != nil {
 			return err
 		}
 		periodMonths := order.PeriodMonths

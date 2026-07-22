@@ -444,7 +444,7 @@ func WechatPayJsapiCheckout(c *gin.Context) {
 		return
 	}
 
-	_ = model.ExpirePendingTokenPoolSubscriptionOrders(tokenId, targetPool.Id, "")
+	_ = model.ExpirePendingTokenPoolSubscriptionOrders(tokenId, targetPool.Id, "jsapi", "")
 
 	order := &model.TokenPoolSubscriptionOrder{
 		UserId:               userId,
