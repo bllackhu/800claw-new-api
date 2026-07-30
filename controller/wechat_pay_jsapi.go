@@ -77,7 +77,7 @@ func WechatPayJsapiOrderQuery(c *gin.Context) {
 		return
 	}
 
-	reconciled, reconcileErr := reconcileTokenPoolSubscriptionOrderFromWeChat(c.Request.Context(), order)
+	reconciled, reconcileErr := service.ReconcileTokenPoolSubscriptionOrderFromWeChat(c.Request.Context(), order)
 	if reconcileErr != nil {
 		logger.LogError(c, "wechat jsapi order query failed trade_no="+tradeNo+": "+reconcileErr.Error())
 	}

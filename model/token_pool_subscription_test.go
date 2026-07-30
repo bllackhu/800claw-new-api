@@ -78,6 +78,60 @@ func TestCompleteTokenPoolSubscriptionFromNotify_Idempotent(t *testing.T) {
 	require.Equal(t, expectedEnd, sub.PeriodEnd)
 }
 
+func TestCompleteTokenPoolSubscriptionFromNotify_ExpiredOrder(t *testing.T) {
+	truncateTables(t)
+	DB.Exec("DELETE FROM token_pool_subscription_orders")
+	DB.Exec("DELETE FROM token_pool_subscriptions")
+
+	now := common.GetTimestamp()
+	o := &TokenPoolSubscriptionOrder{
+		UserId:               1,
+		TokenId:              2,
+		PoolId:               10,
+		AmountCny:            40,
+		AmountTotalFen:       4000,
+		Currency:             "CNY",
+		BillingPeriodSeconds: 30 * 86400,
+		TradeNo:              "TPEXPIREDPAY1",
+		Status:               common.TopUpStatusExpired,
+		CreateTime:           now,
+	}
+	require.NoError(t, InsertTokenPoolSubscriptionOrder(o))
+
+	raw := `{"trade_state":"SUCCESS"}`
+	require.NoError(t, CompleteTokenPoolSubscriptionFromNotify("TPEXPIREDPAY1", "wx-txn-exp", raw, 4000, "CNY"))
+
+	var loaded TokenPoolSubscriptionOrder
+	require.NoError(t, DB.Where("trade_no = ?", "TPEXPIREDPAY1").First(&loaded).Error)
+	require.Equal(t, common.TopUpStatusSuccess, loaded.Status)
+
+	ok, err := TokenHasActivePoolSubscription(2, 10)
+	require.NoError(t, err)
+	require.True(t, ok)
+}
+
+func TestCompleteTokenPoolSubscriptionFromNotify_AmountMismatchPermanent(t *testing.T) {
+	truncateTables(t)
+	DB.Exec("DELETE FROM token_pool_subscription_orders")
+
+	now := common.GetTimestamp()
+	o := &TokenPoolSubscriptionOrder{
+		UserId:         1,
+		TokenId:        1,
+		PoolId:         10,
+		AmountTotalFen: 4000,
+		Currency:       "CNY",
+		TradeNo:        "TPMISMATCH1",
+		Status:         common.TopUpStatusPending,
+		CreateTime:     now,
+	}
+	require.NoError(t, InsertTokenPoolSubscriptionOrder(o))
+
+	err := CompleteTokenPoolSubscriptionFromNotify("TPMISMATCH1", "wx", "{}", 3999, "CNY")
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrPoolSubscriptionOrderUnfulfillable)
+}
+
 func TestPeriodEndAtBillingEOD(t *testing.T) {
 	loc := poolSubscriptionLocation
 	anchor := time.Date(2026, 6, 10, 14, 37, 22, 0, loc).Unix()
@@ -201,16 +255,62 @@ func TestListTokenPoolSubscriptions_Filters(t *testing.T) {
 		TokenId: 2, PoolId: 10, PeriodStart: now, PeriodEnd: now + 200,
 	}).Error)
 
-	items, total, err := ListTokenPoolSubscriptions(0, 10, 1, 0)
+	items, total, err := ListTokenPoolSubscriptions(0, 10, 1, 0, "", "")
 	require.NoError(t, err)
 	require.Equal(t, int64(1), total)
 	require.Len(t, items, 1)
 	require.Equal(t, 1, items[0].TokenId)
 
-	items, total, err = ListTokenPoolSubscriptions(0, 10, 0, 10)
+	items, total, err = ListTokenPoolSubscriptions(0, 10, 0, 10, "", "")
 	require.NoError(t, err)
 	require.Equal(t, int64(2), total)
 	require.Len(t, items, 2)
+}
+
+func TestListTokenPoolSubscriptions_NameFilters(t *testing.T) {
+	setupTokenPoolSubscriptionAdminTestDB(t)
+
+	now := common.GetTimestamp()
+	require.NoError(t, DB.Create(&Token{
+		Id: 11, UserId: 1, Name: "alpha-token", Key: "sk-test-alpha-token-abcdefghijklmnop",
+	}).Error)
+	require.NoError(t, DB.Create(&Token{
+		Id: 12, UserId: 1, Name: "beta-token", Key: "sk-test-beta-token-abcdefghijklmnop",
+	}).Error)
+	require.NoError(t, DB.Create(&Pool{
+		Id: 101, Name: "Lite", Status: PoolStatusEnabled,
+	}).Error)
+	require.NoError(t, DB.Create(&Pool{
+		Id: 102, Name: "Pro", Status: PoolStatusEnabled,
+	}).Error)
+	require.NoError(t, DB.Create(&TokenPoolSubscription{
+		TokenId: 11, PoolId: 101, PeriodStart: now, PeriodEnd: now + 100,
+	}).Error)
+	require.NoError(t, DB.Create(&TokenPoolSubscription{
+		TokenId: 12, PoolId: 102, PeriodStart: now, PeriodEnd: now + 200,
+	}).Error)
+
+	items, total, err := ListTokenPoolSubscriptions(0, 10, 0, 0, "alpha", "")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Len(t, items, 1)
+	require.Equal(t, 11, items[0].TokenId)
+
+	items, total, err = ListTokenPoolSubscriptions(0, 10, 0, 0, "", "Lite")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Len(t, items, 1)
+	require.Equal(t, 101, items[0].PoolId)
+
+	items, total, err = ListTokenPoolSubscriptions(0, 10, 11, 0, "beta", "")
+	require.NoError(t, err)
+	require.Equal(t, int64(0), total)
+	require.Len(t, items, 0)
+
+	items, total, err = ListTokenPoolSubscriptions(0, 10, 0, 0, "missing-token", "")
+	require.NoError(t, err)
+	require.Equal(t, int64(0), total)
+	require.Len(t, items, 0)
 }
 
 func TestGrantFirstRequestTrial_CreatesRowForNewToken(t *testing.T) {

@@ -148,6 +148,10 @@ const PoolsTable = () => {
     setTokenSubFilterTokenId,
     tokenSubFilterPoolId,
     setTokenSubFilterPoolId,
+    tokenSubFilterTokenName,
+    setTokenSubFilterTokenName,
+    tokenSubFilterPoolName,
+    setTokenSubFilterPoolName,
     loadTokenSubscriptions,
     tokenSubColumns,
     tokenSubForm,
@@ -267,12 +271,14 @@ const PoolsTable = () => {
               placeholder='filter binding_value'
               value={bindingValueFilter}
               onChange={(value) => setBindingValueFilter(value)}
+              onEnterPress={() => loadBindings(1)}
               style={{ maxWidth: 220 }}
             />
             <Input
               placeholder='filter binding_name'
               value={bindingNameFilter}
               onChange={(value) => setBindingNameFilter(value)}
+              onEnterPress={() => loadBindings(1)}
               style={{ maxWidth: 220 }}
             />
             <Select
@@ -338,6 +344,7 @@ const PoolsTable = () => {
               placeholder='filter pool_id'
               value={periodOptionPoolFilter}
               onChange={(value) => setPeriodOptionPoolFilter(value)}
+              onEnterPress={() => loadPeriodOptions(1)}
               style={{ maxWidth: 220 }}
             />
             <Button onClick={() => loadPeriodOptions(1)}>{t('Apply Filter')}</Button>
@@ -373,6 +380,7 @@ const PoolsTable = () => {
               placeholder='filter pool_id'
               value={channelPoolFilter}
               onChange={(value) => setChannelPoolFilter(value)}
+              onEnterPress={() => loadPoolChannels(1)}
               style={{ maxWidth: 220 }}
             />
             <Button onClick={() => loadPoolChannels(1)}>{t('Apply Filter')}</Button>
@@ -408,6 +416,7 @@ const PoolsTable = () => {
               placeholder='filter pool_id'
               value={policyPoolFilter}
               onChange={(value) => setPolicyPoolFilter(value)}
+              onEnterPress={() => loadPolicies(1)}
               style={{ maxWidth: 220 }}
             />
             <Button onClick={() => loadPolicies(1)}>{t('Apply Filter')}</Button>
@@ -436,12 +445,28 @@ const PoolsTable = () => {
               placeholder='filter token_id'
               value={tokenSubFilterTokenId}
               onChange={(value) => setTokenSubFilterTokenId(value)}
+              onEnterPress={() => loadTokenSubscriptions(1)}
               style={{ maxWidth: 160 }}
             />
             <Input
               placeholder='filter pool_id'
               value={tokenSubFilterPoolId}
               onChange={(value) => setTokenSubFilterPoolId(value)}
+              onEnterPress={() => loadTokenSubscriptions(1)}
+              style={{ maxWidth: 160 }}
+            />
+            <Input
+              placeholder='filter token_name'
+              value={tokenSubFilterTokenName}
+              onChange={(value) => setTokenSubFilterTokenName(value)}
+              onEnterPress={() => loadTokenSubscriptions(1)}
+              style={{ maxWidth: 160 }}
+            />
+            <Input
+              placeholder='filter pool_name'
+              value={tokenSubFilterPoolName}
+              onChange={(value) => setTokenSubFilterPoolName(value)}
+              onEnterPress={() => loadTokenSubscriptions(1)}
               style={{ maxWidth: 160 }}
             />
             <Button onClick={() => loadTokenSubscriptions(1)}>{t('Apply Filter')}</Button>
@@ -449,7 +474,14 @@ const PoolsTable = () => {
               onClick={() => {
                 setTokenSubFilterTokenId('');
                 setTokenSubFilterPoolId('');
-                loadTokenSubscriptions(1, { tokenId: '', poolId: '' });
+                setTokenSubFilterTokenName('');
+                setTokenSubFilterPoolName('');
+                loadTokenSubscriptions(1, {
+                  tokenId: '',
+                  poolId: '',
+                  tokenName: '',
+                  poolName: '',
+                });
               }}
             >
               {t('Clear Filters')}

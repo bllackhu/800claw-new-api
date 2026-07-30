@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -133,7 +135,7 @@ func applyTokenPoolUsagePoolName(item *TokenPoolUsageItem, pool *model.Pool) {
 	item.PoolName = poolDisplayName(pool)
 }
 
-func buildTokenPoolSubscriptionInfo(token *model.Token, pool *model.Pool) (*TokenPoolSubscriptionInfo, error) {
+func buildTokenPoolSubscriptionInfo(ctx context.Context, token *model.Token, pool *model.Pool) (*TokenPoolSubscriptionInfo, error) {
 	if pool == nil || pool.Id <= 0 {
 		return nil, nil
 	}
@@ -158,18 +160,49 @@ func buildTokenPoolSubscriptionInfo(token *model.Token, pool *model.Pool) (*Toke
 	if token == nil || token.Id <= 0 {
 		return info, nil
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	now := common.GetTimestamp()
 	sub, err := model.GetTokenPoolSubscription(token.Id, pool.Id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return info, nil
+			if _, reconcileErr := service.MaybeReconcilePendingPoolSubscription(ctx, token.Id, pool.Id); reconcileErr != nil {
+				logger.LogError(ctx, "pool subscription status lazy reconcile failed: "+reconcileErr.Error())
+			} else {
+				sub, err = model.GetTokenPoolSubscription(token.Id, pool.Id)
+				if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+					return nil, err
+				}
+			}
+			if sub == nil {
+				return info, nil
+			}
+		} else {
+			return nil, err
 		}
-		return nil, err
 	}
 	info.PeriodStart = sub.PeriodStart
 	info.PeriodEnd = sub.PeriodEnd
 	if sub.PeriodEnd >= now {
 		info.Active = true
+		return info, nil
+	}
+	if _, reconcileErr := service.MaybeReconcilePendingPoolSubscription(ctx, token.Id, pool.Id); reconcileErr != nil {
+		logger.LogError(ctx, "pool subscription status lazy reconcile failed: "+reconcileErr.Error())
+	} else {
+		sub, err = model.GetTokenPoolSubscription(token.Id, pool.Id)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return info, nil
+			}
+			return nil, err
+		}
+		info.PeriodStart = sub.PeriodStart
+		info.PeriodEnd = sub.PeriodEnd
+		if sub.PeriodEnd >= now {
+			info.Active = true
+		}
 	}
 	return info, nil
 }
@@ -526,7 +559,7 @@ func GetTokenPoolUsageSelf(c *gin.Context) {
 		payload["resolved_pool_id"] = resolved.Id
 		payload["resolved_pool_name"] = displayPoolName
 		payload["resolved_pool"] = buildTokenPoolResolvedPoolSummary(resolved)
-		subInfo, subErr := buildTokenPoolSubscriptionInfo(token, resolved)
+		subInfo, subErr := buildTokenPoolSubscriptionInfo(c.Request.Context(), token, resolved)
 		if subErr != nil {
 			common.ApiError(c, subErr)
 			return

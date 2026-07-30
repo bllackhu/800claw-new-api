@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,9 +12,13 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/service/wechatpay"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
+	"github.com/wechatpay-apiv3/wechatpay-go/core"
+	"github.com/wechatpay-apiv3/wechatpay-go/services/payments"
 	"gorm.io/gorm"
 )
 
@@ -159,4 +164,69 @@ func TestPoolSelect_NoRequireSubBypassesGate(t *testing.T) {
 		Where("token_id = ? AND pool_id = ?", tokenId, pool.Id).
 		Count(&count).Error)
 	require.Equal(t, int64(0), count)
+}
+
+func TestPoolSelect_LazyReconcilePendingPayment(t *testing.T) {
+	setupPoolSelectTestDB(t)
+	tokenId := 504
+	pool := seedPricedPoolWithTokenBinding(t, tokenId)
+
+	now := common.GetTimestamp()
+	require.NoError(t, model.DB.Create(&model.TokenPoolSubscription{
+		TokenId:     tokenId,
+		PoolId:      pool.Id,
+		PeriodStart: now - 86400,
+		PeriodEnd:   now - 3600,
+		LastOrderId: 0,
+	}).Error)
+
+	tradeNo := "TPLAZYRECON1"
+	total := int64(4000)
+	cur := "CNY"
+	state := "SUCCESS"
+	require.NoError(t, model.DB.Create(&model.TokenPoolSubscriptionOrder{
+		UserId:               1,
+		TokenId:              tokenId,
+		PoolId:               pool.Id,
+		AmountTotalFen:       total,
+		Currency:             cur,
+		BillingPeriodSeconds: pool.BillingPeriodSeconds,
+		TradeNo:              tradeNo,
+		PaymentType:          "native",
+		Status:               common.TopUpStatusPending,
+		CreateTime:           now,
+	}).Error)
+
+	restore := service.SetTokenPoolSubscriptionReconcileTestHooks(
+		func(ctx context.Context) (*core.Client, *wechatpay.Config, error) {
+			return &core.Client{}, &wechatpay.Config{MchID: "m"}, nil
+		},
+		func(ctx context.Context, cfg *wechatpay.Config, client *core.Client, outTradeNo string) (*payments.Transaction, error) {
+			require.Equal(t, tradeNo, outTradeNo)
+			return &payments.Transaction{
+				OutTradeNo: &tradeNo,
+				TradeState: &state,
+				Amount: &payments.TransactionAmount{
+					Total:    &total,
+					Currency: &cur,
+				},
+			}, nil
+		},
+	)
+	t.Cleanup(restore)
+
+	rec, c := newPoolSelectTestRequest(t, tokenId, true)
+	called := false
+	handler := PoolSelect()
+	handler(c)
+	if !c.IsAborted() {
+		called = true
+		c.Next()
+	}
+	require.True(t, called, "lazy reconcile should activate subscription and allow request")
+	require.NotEqual(t, http.StatusPaymentRequired, rec.Code)
+
+	sub, err := model.GetTokenPoolSubscription(tokenId, pool.Id)
+	require.NoError(t, err)
+	require.Greater(t, sub.PeriodEnd, now)
 }

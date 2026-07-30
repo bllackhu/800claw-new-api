@@ -102,6 +102,8 @@ export const usePoolsData = () => {
   const [tokenSubLoading, setTokenSubLoading] = useState(false);
   const [tokenSubFilterTokenId, setTokenSubFilterTokenId] = useState('');
   const [tokenSubFilterPoolId, setTokenSubFilterPoolId] = useState('');
+  const [tokenSubFilterTokenName, setTokenSubFilterTokenName] = useState('');
+  const [tokenSubFilterPoolName, setTokenSubFilterPoolName] = useState('');
   const [tokenSubForm, setTokenSubForm] = useState({
     id: 0,
     token_id: '',
@@ -385,6 +387,8 @@ export const usePoolsData = () => {
       try {
         const tokenId = filters.tokenId ?? tokenSubFilterTokenId;
         const poolId = filters.poolId ?? tokenSubFilterPoolId;
+        const tokenName = filters.tokenName ?? tokenSubFilterTokenName;
+        const poolName = filters.poolName ?? tokenSubFilterPoolName;
         const params = new URLSearchParams({
           p: String(targetPage),
           page_size: String(PAGE_SIZE),
@@ -394,6 +398,12 @@ export const usePoolsData = () => {
         }
         if (String(poolId).trim()) {
           params.set('pool_id', String(poolId).trim());
+        }
+        if (String(tokenName).trim()) {
+          params.set('token_name', String(tokenName).trim());
+        }
+        if (String(poolName).trim()) {
+          params.set('pool_name', String(poolName).trim());
         }
         const res = await API.get(`/api/pool/token_subscriptions?${params.toString()}`);
         if (!res?.data?.success) {
@@ -410,7 +420,7 @@ export const usePoolsData = () => {
         setTokenSubLoading(false);
       }
     },
-    [tokenSubFilterPoolId, tokenSubFilterTokenId, t],
+    [tokenSubFilterPoolId, tokenSubFilterPoolName, tokenSubFilterTokenId, tokenSubFilterTokenName, t],
   );
 
   const handleTabChange = async (key) => {
@@ -1589,6 +1599,10 @@ export const usePoolsData = () => {
     setTokenSubFilterTokenId,
     tokenSubFilterPoolId,
     setTokenSubFilterPoolId,
+    tokenSubFilterTokenName,
+    setTokenSubFilterTokenName,
+    tokenSubFilterPoolName,
+    setTokenSubFilterPoolName,
     loadTokenSubscriptions,
     tokenSubColumns,
     tokenSubForm,

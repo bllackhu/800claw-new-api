@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/wechatpay-apiv3/wechatpay-go/core"
 	"github.com/wechatpay-apiv3/wechatpay-go/core/auth/verifiers"
@@ -108,12 +109,12 @@ func ResetClientForTests() {
 }
 
 // NativePrepay creates a Native (QR) order and returns the code_url.
-func NativePrepay(ctx context.Context, cfg *Config, client *core.Client, notifyURL, outTradeNo, description string, totalFen int64) (codeURL string, err error) {
+// When timeExpire is non-zero it is sent as the WeChat order expiry (RFC3339).
+func NativePrepay(ctx context.Context, cfg *Config, client *core.Client, notifyURL, outTradeNo, description string, totalFen int64, timeExpire time.Time) (codeURL string, err error) {
 	if totalFen <= 0 {
 		return "", errors.New("invalid amount")
 	}
-	svc := native.NativeApiService{Client: client}
-	resp, _, err := svc.Prepay(ctx, native.PrepayRequest{
+	req := native.PrepayRequest{
 		Appid:       core.String(cfg.AppID),
 		Mchid:       core.String(cfg.MchID),
 		Description: core.String(description),
@@ -123,7 +124,12 @@ func NativePrepay(ctx context.Context, cfg *Config, client *core.Client, notifyU
 			Total:    core.Int64(totalFen),
 			Currency: core.String("CNY"),
 		},
-	})
+	}
+	if !timeExpire.IsZero() {
+		req.TimeExpire = core.Time(timeExpire)
+	}
+	svc := native.NativeApiService{Client: client}
+	resp, _, err := svc.Prepay(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -131,6 +137,22 @@ func NativePrepay(ctx context.Context, cfg *Config, client *core.Client, notifyU
 		return "", errors.New("empty code_url from wechat pay")
 	}
 	return *resp.CodeUrl, nil
+}
+
+// CloseOrderByOutTradeNo closes an unpaid Native order at WeChat by merchant out_trade_no.
+func CloseOrderByOutTradeNo(ctx context.Context, cfg *Config, client *core.Client, outTradeNo string) error {
+	if outTradeNo == "" {
+		return errors.New("empty out_trade_no")
+	}
+	if cfg == nil || client == nil {
+		return errors.New("wechat pay client not configured")
+	}
+	svc := native.NativeApiService{Client: client}
+	_, err := svc.CloseOrder(ctx, native.CloseOrderRequest{
+		OutTradeNo: core.String(outTradeNo),
+		Mchid:      core.String(cfg.MchID),
+	})
+	return err
 }
 
 // JsapiPrepay creates a JSAPI order and returns the prepay_id.

@@ -10,14 +10,17 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/wechatpay"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"github.com/wechatpay-apiv3/wechatpay-go/core"
+	"github.com/wechatpay-apiv3/wechatpay-go/core/notify"
 	"github.com/wechatpay-apiv3/wechatpay-go/services/payments"
 	"gorm.io/gorm"
 )
@@ -155,7 +158,7 @@ func TestRequestTokenPoolSubscriptionWechatCheckout_ReusesPendingOrder(t *testin
 	}).Error)
 
 	prepayCalls := 0
-	nativePrepayFunc = func(ctx context.Context, cfg *wechatpay.Config, client *core.Client, notifyURL, tradeNo, description string, amountFen int64) (string, error) {
+	nativePrepayFunc = func(ctx context.Context, cfg *wechatpay.Config, client *core.Client, notifyURL, tradeNo, description string, amountFen int64, timeExpire time.Time) (string, error) {
 		prepayCalls++
 		return "", nil
 	}
@@ -218,7 +221,13 @@ func TestRequestTokenPoolSubscriptionWechatCheckout_NewOrderWhenAmountMismatch(t
 	}).Error)
 
 	var newTradeNo string
-	nativePrepayFunc = func(ctx context.Context, cfg *wechatpay.Config, client *core.Client, notifyURL, tradeNo, description string, amountFen int64) (string, error) {
+	closeNativeOrderFunc = func(ctx context.Context, cfg *wechatpay.Config, client *core.Client, outTradeNo string) error {
+		return nil
+	}
+	t.Cleanup(func() {
+		closeNativeOrderFunc = wechatpay.CloseOrderByOutTradeNo
+	})
+	nativePrepayFunc = func(ctx context.Context, cfg *wechatpay.Config, client *core.Client, notifyURL, tradeNo, description string, amountFen int64, timeExpire time.Time) (string, error) {
 		newTradeNo = tradeNo
 		require.Equal(t, int64(5000), amountFen)
 		return "weixin://wxpay/bizpayurl?pr=new", nil
@@ -311,21 +320,24 @@ func TestGetTokenPoolSubscriptionOrderSelf_ReconcileSuccess(t *testing.T) {
 	wxTxn := "4200001234"
 	total := int64(2000)
 	cur := "CNY"
-	queryTransactionByOutTradeNoFunc = func(ctx context.Context, cfg *wechatpay.Config, client *core.Client, outTradeNo string) (*payments.Transaction, error) {
-		require.Equal(t, tradeNo, outTradeNo)
-		return &payments.Transaction{
-			OutTradeNo:    &tradeNo,
-			TransactionId: &wxTxn,
-			TradeState:    &state,
-			Amount: &payments.TransactionAmount{
-				Total:    &total,
-				Currency: &cur,
-			},
-		}, nil
-	}
-	t.Cleanup(func() {
-		queryTransactionByOutTradeNoFunc = wechatpay.QueryTransactionByOutTradeNo
-	})
+	restore := service.SetTokenPoolSubscriptionReconcileTestHooks(
+		func(ctx context.Context) (*core.Client, *wechatpay.Config, error) {
+			return &core.Client{}, &wechatpay.Config{MchID: "1900000001"}, nil
+		},
+		func(ctx context.Context, cfg *wechatpay.Config, client *core.Client, outTradeNo string) (*payments.Transaction, error) {
+			require.Equal(t, tradeNo, outTradeNo)
+			return &payments.Transaction{
+				OutTradeNo:    &tradeNo,
+				TransactionId: &wxTxn,
+				TradeState:    &state,
+				Amount: &payments.TransactionAmount{
+					Total:    &total,
+					Currency: &cur,
+				},
+			}, nil
+		},
+	)
+	t.Cleanup(restore)
 
 	rec := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(rec)
@@ -379,7 +391,7 @@ func TestRequestTokenPoolSubscriptionWechatCheckout_DoesNotExpireJsapiPending(t 
 		CreateTime:     common.GetTimestamp(),
 	}).Error)
 
-	nativePrepayFunc = func(ctx context.Context, cfg *wechatpay.Config, client *core.Client, notifyURL, tradeNo, description string, amountFen int64) (string, error) {
+	nativePrepayFunc = func(ctx context.Context, cfg *wechatpay.Config, client *core.Client, notifyURL, tradeNo, description string, amountFen int64, timeExpire time.Time) (string, error) {
 		return "weixin://wxpay/bizpayurl?pr=cross", nil
 	}
 	t.Cleanup(func() {
@@ -415,5 +427,106 @@ func TestRequestTokenPoolSubscriptionWechatCheckout_DoesNotExpireJsapiPending(t 
 	require.NoError(t, db.Where("trade_no = ?", resp.Data.TradeNo).First(&nativeOrder).Error)
 	require.Equal(t, "native", nativeOrder.PaymentType)
 	require.Equal(t, common.TopUpStatusPending, nativeOrder.Status)
+}
+
+func TestWeChatPayPoolSubscriptionNotify_PermanentMismatchReturns200(t *testing.T) {
+	db := setupTokenPoolSubscriptionCheckoutTestDB(t)
+	stubWechatpayClient(t)
+	tradeNo := "TPNOTIFYBAD1"
+	now := common.GetTimestamp()
+	require.NoError(t, db.Create(&model.TokenPoolSubscriptionOrder{
+		TokenId:              99,
+		PoolId:               10,
+		AmountTotalFen:       4000,
+		Currency:             "CNY",
+		BillingPeriodSeconds: 86400,
+		TradeNo:              tradeNo,
+		Status:               common.TopUpStatusPending,
+		CreateTime:           now,
+	}).Error)
+
+	state := "SUCCESS"
+	badTotal := int64(3999)
+	cur := "CNY"
+	parsePaymentNotifyFunc = func(ctx context.Context, cfg *wechatpay.Config, r *http.Request) (*notify.Request, *payments.Transaction, error) {
+		return nil, &payments.Transaction{
+			OutTradeNo: &tradeNo,
+			TradeState: &state,
+			Amount: &payments.TransactionAmount{
+				Total:    &badTotal,
+				Currency: &cur,
+			},
+		}, nil
+	}
+	t.Cleanup(func() {
+		parsePaymentNotifyFunc = wechatpay.ParsePaymentNotify
+	})
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/payment/wechat/notify", nil)
+	WeChatPayPoolSubscriptionNotify(ctx)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var order model.TokenPoolSubscriptionOrder
+	require.NoError(t, db.Where("trade_no = ?", tradeNo).First(&order).Error)
+	require.Equal(t, common.TopUpStatusPending, order.Status)
+}
+
+func TestAdminReconcileWechatOrder_ExpiredOrder(t *testing.T) {
+	db := setupTokenPoolSubscriptionCheckoutTestDB(t)
+	stubWechatpayClient(t)
+	tradeNo := "TPADMEXP1"
+	now := common.GetTimestamp()
+	require.NoError(t, db.Create(&model.TokenPoolSubscriptionOrder{
+		TokenId:              88,
+		PoolId:               11,
+		AmountTotalFen:       3000,
+		Currency:             "CNY",
+		BillingPeriodSeconds: 86400,
+		TradeNo:              tradeNo,
+		Status:               common.TopUpStatusExpired,
+		CreateTime:           now,
+	}).Error)
+
+	state := "SUCCESS"
+	total := int64(3000)
+	cur := "CNY"
+	restore := service.SetTokenPoolSubscriptionReconcileTestHooks(
+		func(ctx context.Context) (*core.Client, *wechatpay.Config, error) {
+			return &core.Client{}, &wechatpay.Config{MchID: "1900000001"}, nil
+		},
+		func(ctx context.Context, cfg *wechatpay.Config, client *core.Client, outTradeNo string) (*payments.Transaction, error) {
+			return &payments.Transaction{
+				OutTradeNo: &tradeNo,
+				TradeState: &state,
+				Amount: &payments.TransactionAmount{
+					Total:    &total,
+					Currency: &cur,
+				},
+			}, nil
+		},
+	)
+	t.Cleanup(restore)
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/pool/subscription_orders/"+tradeNo+"/reconcile", nil)
+	ctx.Params = gin.Params{{Key: "trade_no", Value: tradeNo}}
+	AdminReconcileWechatOrder(ctx)
+
+	var resp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Reconciled bool `json:"reconciled"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.True(t, resp.Success)
+	require.True(t, resp.Data.Reconciled)
+
+	ok, err := model.TokenHasActivePoolSubscription(88, 11)
+	require.NoError(t, err)
+	require.True(t, ok)
 }
 

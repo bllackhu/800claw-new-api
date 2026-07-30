@@ -62,6 +62,12 @@ func TestGetTokenPoolSubscriptions_List(t *testing.T) {
 	setupTokenPoolSubscriptionCheckoutTestDB(t)
 
 	now := common.GetTimestamp()
+	require.NoError(t, model.DB.Create(&model.Token{
+		Id: 1, UserId: 1, Name: "tok-one", Key: "sk-test-token-one-abcdefghijklmnop",
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.Pool{
+		Id: 10, Name: "Lite", Status: model.PoolStatusEnabled,
+	}).Error)
 	require.NoError(t, model.DB.Create(&model.TokenPoolSubscription{
 		TokenId: 1, PoolId: 10, PeriodStart: now, PeriodEnd: now + 100,
 	}).Error)
@@ -88,4 +94,44 @@ func TestGetTokenPoolSubscriptions_List(t *testing.T) {
 	require.Equal(t, int64(1), resp.Data.Total)
 	require.Len(t, resp.Data.Items, 1)
 	require.Equal(t, 1, resp.Data.Items[0].TokenId)
+}
+
+func TestGetTokenPoolSubscriptions_NameFilters(t *testing.T) {
+	setupTokenPoolSubscriptionCheckoutTestDB(t)
+
+	now := common.GetTimestamp()
+	require.NoError(t, model.DB.Create(&model.Token{
+		Id: 1, UserId: 1, Name: "tok-one", Key: "sk-test-token-one-abcdefghijklmnop",
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.Pool{
+		Id: 10, Name: "Lite", Status: model.PoolStatusEnabled,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.TokenPoolSubscription{
+		TokenId: 1, PoolId: 10, PeriodStart: now, PeriodEnd: now + 100,
+	}).Error)
+
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/pool/token_subscriptions?token_name=tok-one&pool_name=Lite", nil)
+
+	GetTokenPoolSubscriptions(ctx)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Items []struct {
+				TokenId   int    `json:"token_id"`
+				TokenName string `json:"token_name"`
+				PoolName  string `json:"pool_name"`
+			} `json:"items"`
+			Total int64 `json:"total"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.True(t, resp.Success)
+	require.Equal(t, int64(1), resp.Data.Total)
+	require.Len(t, resp.Data.Items, 1)
+	require.Equal(t, "tok-one", resp.Data.Items[0].TokenName)
+	require.Equal(t, "Lite", resp.Data.Items[0].PoolName)
 }

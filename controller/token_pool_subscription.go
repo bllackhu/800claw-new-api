@@ -16,14 +16,15 @@ import (
 	"github.com/QuantumNous/new-api/service/wechatpay"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
-	"github.com/wechatpay-apiv3/wechatpay-go/services/payments"
+	"github.com/wechatpay-apiv3/wechatpay-go/core"
 	"gorm.io/gorm"
 )
 
 var (
-	nativePrepayFunc                  = wechatpay.NativePrepay
-	queryTransactionByOutTradeNoFunc  = wechatpay.QueryTransactionByOutTradeNo
-	wechatpayClientFunc               = wechatpay.Client
+	nativePrepayFunc       = wechatpay.NativePrepay
+	wechatpayClientFunc    = wechatpay.Client
+	closeNativeOrderFunc   = wechatpay.CloseOrderByOutTradeNo
+	parsePaymentNotifyFunc = wechatpay.ParsePaymentNotify
 )
 
 type tokenPoolSubscriptionCheckoutRequest struct {
@@ -339,14 +340,15 @@ func RequestTokenPoolSubscriptionWechatCheckout(c *gin.Context) {
 	tradeNo := genTokenPoolSubscriptionTradeNo()
 	desc := fmt.Sprintf("Pool subscription: %s", displayPoolName)
 
-	codeURL, err := nativePrepayFunc(ctx, cfg, client, notifyURL, tradeNo, desc, amountFen)
+	timeExpire := time.Now().Add(time.Duration(model.TokenPoolSubscriptionPendingReuseSeconds) * time.Second)
+	codeURL, err := nativePrepayFunc(ctx, cfg, client, notifyURL, tradeNo, desc, amountFen, timeExpire)
 	if err != nil {
 		logger.LogError(c, "wechat native prepay failed: "+err.Error())
 		common.ApiErrorMsg(c, "failed to create wechat pay order")
 		return
 	}
 
-	_ = model.ExpirePendingTokenPoolSubscriptionOrders(tokenId, pool.Id, "native", "")
+	closeSupersededNativePoolSubscriptionOrders(ctx, cfg, client, tokenId, pool.Id)
 
 	order := &model.TokenPoolSubscriptionOrder{
 		UserId:               userId,
@@ -414,7 +416,7 @@ func GetTokenPoolSubscriptionOrderSelf(c *gin.Context) {
 		return
 	}
 
-	reconciled, reconcileErr := reconcileTokenPoolSubscriptionOrderFromWeChat(c.Request.Context(), order)
+	reconciled, reconcileErr := service.ReconcileTokenPoolSubscriptionOrderFromWeChat(c.Request.Context(), order)
 	if reconcileErr != nil {
 		logger.LogError(c, "wechat order query failed trade_no="+tradeNo+": "+reconcileErr.Error())
 	}
@@ -443,58 +445,24 @@ func GetTokenPoolSubscriptionOrderSelf(c *gin.Context) {
 	})
 }
 
-func reconcileTokenPoolSubscriptionOrderFromWeChat(ctx context.Context, order *model.TokenPoolSubscriptionOrder) (bool, error) {
-	if order == nil || order.Status != common.TopUpStatusPending {
-		return false, nil
+func closeSupersededNativePoolSubscriptionOrders(ctx context.Context, cfg *wechatpay.Config, client *core.Client, tokenId, poolId int) {
+	if cfg == nil || client == nil || tokenId <= 0 || poolId <= 0 {
+		return
 	}
-	client, cfg, err := wechatpayClientFunc(ctx)
-	if err != nil || client == nil || cfg == nil {
-		return false, err
+	pending, err := model.ListPendingNativeTokenPoolSubscriptionOrders(tokenId, poolId)
+	if err != nil || len(pending) == 0 {
+		return
 	}
-	tx, err := queryTransactionByOutTradeNoFunc(ctx, cfg, client, order.TradeNo)
-	if err != nil {
-		return false, err
-	}
-	if tx == nil || tx.TradeState == nil {
-		return false, nil
-	}
-	state := *tx.TradeState
-	switch state {
-	case "SUCCESS":
-		if err := fulfillTokenPoolSubscriptionFromTransaction(tx); err != nil {
-			return false, err
+	for _, o := range pending {
+		if o.TradeNo == "" {
+			continue
 		}
-		return true, nil
-	case "CLOSED", "REVOKED":
-		_ = model.DB.Model(order).Update("status", common.TopUpStatusExpired).Error
-		order.Status = common.TopUpStatusExpired
-		return false, nil
-	default:
-		return false, nil
+		if err := closeNativeOrderFunc(ctx, cfg, client, o.TradeNo); err != nil {
+			logger.LogError(ctx, "wechat close superseded native order failed trade_no="+o.TradeNo+": "+err.Error())
+			continue
+		}
+		_ = model.MarkTokenPoolSubscriptionOrderExpired(o.TradeNo)
 	}
-}
-
-func fulfillTokenPoolSubscriptionFromTransaction(tx *payments.Transaction) error {
-	if tx == nil || tx.OutTradeNo == nil {
-		return errors.New("missing transaction")
-	}
-	outNo := *tx.OutTradeNo
-	var total int64
-	if tx.Amount != nil && tx.Amount.Total != nil {
-		total = *tx.Amount.Total
-	}
-	cur := "CNY"
-	if tx.Amount != nil && tx.Amount.Currency != nil {
-		cur = *tx.Amount.Currency
-	}
-	wxTxn := ""
-	if tx.TransactionId != nil {
-		wxTxn = *tx.TransactionId
-	}
-	raw, _ := common.Marshal(tx)
-	LockOrder(outNo)
-	defer UnlockOrder(outNo)
-	return model.CompleteTokenPoolSubscriptionFromNotify(outNo, wxTxn, string(raw), total, cur)
 }
 
 // WeChatPayPoolSubscriptionNotify handles WeChat Pay v3 payment notifications for pool subscriptions.
@@ -511,7 +479,7 @@ func WeChatPayPoolSubscriptionNotify(c *gin.Context) {
 		return
 	}
 
-	_, tx, err := wechatpay.ParsePaymentNotify(ctx, cfg, c.Request)
+	_, tx, err := parsePaymentNotifyFunc(ctx, cfg, c.Request)
 	if err != nil {
 		logger.LogError(c, "wechat pay notify parse failed: "+err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{"code": "FAIL", "message": "invalid notify"})
@@ -528,7 +496,12 @@ func WeChatPayPoolSubscriptionNotify(c *gin.Context) {
 	}
 	outNo := *tx.OutTradeNo
 
-	if err := fulfillTokenPoolSubscriptionFromTransaction(tx); err != nil {
+	if err := service.FulfillTokenPoolSubscriptionFromTransaction(tx); err != nil {
+		if errors.Is(err, model.ErrPoolSubscriptionOrderUnfulfillable) {
+			logger.LogError(c, "complete token pool subscription permanent failure trade_no="+outNo+" err="+err.Error())
+			c.JSON(http.StatusOK, gin.H{"code": "SUCCESS", "message": "成功"})
+			return
+		}
 		logger.LogError(c, "complete token pool subscription failed trade_no="+outNo+" err="+err.Error())
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "FAIL", "message": "fulfillment error"})
 		return

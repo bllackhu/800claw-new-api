@@ -3,12 +3,21 @@ package model
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+// ErrPoolSubscriptionOrderUnfulfillable marks a notify/fulfill failure that will not succeed on retry
+// (e.g. amount or currency mismatch). Callers should ack WeChat with success to stop retries.
+var ErrPoolSubscriptionOrderUnfulfillable = errors.New("pool subscription order unfulfillable")
+
+func isTokenPoolSubscriptionOrderFulfillable(status string) bool {
+	return status == common.TopUpStatusPending || status == common.TopUpStatusExpired
+}
 
 // TokenPoolSubscriptionOrder records a WeChat Pay pool subscription checkout (native or JSAPI).
 type TokenPoolSubscriptionOrder struct {
@@ -101,6 +110,31 @@ func GetLatestPendingTokenPoolSubscriptionOrder(tokenId, poolId int) (*TokenPool
 		return nil, err
 	}
 	return &o, nil
+}
+
+// ListPendingNativeTokenPoolSubscriptionOrders returns pending native checkout orders for (token_id, pool_id).
+func ListPendingNativeTokenPoolSubscriptionOrders(tokenId, poolId int) ([]TokenPoolSubscriptionOrder, error) {
+	if tokenId <= 0 || poolId <= 0 {
+		return nil, errors.New("invalid token_id or pool_id")
+	}
+	var orders []TokenPoolSubscriptionOrder
+	q := DB.Where("token_id = ? AND pool_id = ? AND status = ?", tokenId, poolId, common.TopUpStatusPending).
+		Where("payment_type = ? OR payment_type = ?", "native", "")
+	err := q.Order("id DESC").Find(&orders).Error
+	if err != nil {
+		return nil, err
+	}
+	return orders, nil
+}
+
+// MarkTokenPoolSubscriptionOrderExpired sets a single order row to expired.
+func MarkTokenPoolSubscriptionOrderExpired(tradeNo string) error {
+	if tradeNo == "" {
+		return errors.New("empty trade_no")
+	}
+	return DB.Model(&TokenPoolSubscriptionOrder{}).
+		Where("trade_no = ?", tradeNo).
+		Update("status", common.TopUpStatusExpired).Error
 }
 
 func GetLatestPendingTokenPoolSubscriptionOrderByPaymentType(tokenId, poolId int, paymentType string) (*TokenPoolSubscriptionOrder, error) {
@@ -293,14 +327,14 @@ func CompleteTokenPoolSubscriptionFromNotify(tradeNo, wechatTxnId, rawJSON strin
 		if order.Status == common.TopUpStatusSuccess {
 			return nil
 		}
-		if order.Status != common.TopUpStatusPending {
-			return fmt.Errorf("order not pending: %s", order.Status)
+		if !isTokenPoolSubscriptionOrderFulfillable(order.Status) {
+			return fmt.Errorf("order not fulfillable: %s", order.Status)
 		}
 		if amountTotal > 0 && order.AmountTotalFen > 0 && amountTotal != order.AmountTotalFen {
-			return fmt.Errorf("amount mismatch: want %d got %d", order.AmountTotalFen, amountTotal)
+			return fmt.Errorf("%w: amount mismatch: want %d got %d", ErrPoolSubscriptionOrderUnfulfillable, order.AmountTotalFen, amountTotal)
 		}
 		if currency != "" && order.Currency != "" && currency != order.Currency {
-			return fmt.Errorf("currency mismatch")
+			return fmt.Errorf("%w: currency mismatch", ErrPoolSubscriptionOrderUnfulfillable)
 		}
 		now := common.GetTimestamp()
 		if err := tx.Model(&order).Updates(map[string]interface{}{
@@ -402,14 +436,40 @@ func ListTokenPoolSubscriptionOrders(offset, limit int) ([]*TokenPoolSubscriptio
 	return items, total, err
 }
 
-// ListTokenPoolSubscriptions returns subscription rows with optional token_id / pool_id filters.
-func ListTokenPoolSubscriptions(offset, limit, tokenIdFilter, poolIdFilter int) ([]*TokenPoolSubscription, int64, error) {
+// ListTokenPoolSubscriptions returns subscription rows with optional token_id / pool_id / name filters.
+func ListTokenPoolSubscriptions(offset, limit, tokenIdFilter, poolIdFilter int, tokenNameFilter, poolNameFilter string) ([]*TokenPoolSubscription, int64, error) {
 	q := DB.Model(&TokenPoolSubscription{})
 	if tokenIdFilter > 0 {
 		q = q.Where("token_id = ?", tokenIdFilter)
 	}
 	if poolIdFilter > 0 {
 		q = q.Where("pool_id = ?", poolIdFilter)
+	}
+	tokenNameFilter = strings.TrimSpace(tokenNameFilter)
+	if tokenNameFilter != "" {
+		pattern := "%" + tokenNameFilter + "%"
+		tokenIds := make([]int, 0)
+		if err := DB.Model(&Token{}).Where("name LIKE ?", pattern).Pluck("id", &tokenIds).Error; err != nil {
+			return nil, 0, err
+		}
+		if len(tokenIds) == 0 {
+			q = q.Where("1 = 0")
+		} else {
+			q = q.Where("token_id IN ?", tokenIds)
+		}
+	}
+	poolNameFilter = strings.TrimSpace(poolNameFilter)
+	if poolNameFilter != "" {
+		pattern := "%" + poolNameFilter + "%"
+		poolIds := make([]int, 0)
+		if err := DB.Model(&Pool{}).Where("name LIKE ?", pattern).Pluck("id", &poolIds).Error; err != nil {
+			return nil, 0, err
+		}
+		if len(poolIds) == 0 {
+			q = q.Where("1 = 0")
+		} else {
+			q = q.Where("pool_id IN ?", poolIds)
+		}
 	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {

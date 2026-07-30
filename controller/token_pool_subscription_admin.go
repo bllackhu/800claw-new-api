@@ -8,9 +8,14 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+func isTokenPoolSubscriptionOrderAdminReconcilable(status string) bool {
+	return status == common.TopUpStatusPending || status == common.TopUpStatusExpired
+}
 
 type tokenPoolSubscriptionAdminItem struct {
 	model.TokenPoolSubscription
@@ -27,17 +32,21 @@ type putTokenPoolSubscriptionRequest struct {
 }
 
 // GetTokenPoolSubscriptions lists token pool subscription rows (admin).
-// GET /api/pool/token_subscriptions?token_id=&pool_id=
+// GET /api/pool/token_subscriptions?token_id=&pool_id=&token_name=&pool_name=
 func GetTokenPoolSubscriptions(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	tokenId, _ := strconv.Atoi(c.Query("token_id"))
 	poolId, _ := strconv.Atoi(c.Query("pool_id"))
+	tokenName := strings.TrimSpace(c.Query("token_name"))
+	poolName := strings.TrimSpace(c.Query("pool_name"))
 
 	items, total, err := model.ListTokenPoolSubscriptions(
 		pageInfo.GetStartIdx(),
 		pageInfo.GetPageSize(),
 		tokenId,
 		poolId,
+		tokenName,
+		poolName,
 	)
 	if err != nil {
 		common.ApiError(c, err)
@@ -125,16 +134,24 @@ func AdminReconcileWechatOrder(c *gin.Context) {
 		return
 	}
 
-	if order.Status != common.TopUpStatusPending {
+	if order.Status == common.TopUpStatusSuccess {
 		common.ApiSuccess(c, gin.H{
 			"order":      order,
 			"reconciled": false,
-			"message":    "order is not pending, no reconcile needed",
+			"message":    "order already success",
+		})
+		return
+	}
+	if !isTokenPoolSubscriptionOrderAdminReconcilable(order.Status) {
+		common.ApiSuccess(c, gin.H{
+			"order":      order,
+			"reconciled": false,
+			"message":    "order status not reconcilable",
 		})
 		return
 	}
 
-	reconciled, reconcileErr := reconcileTokenPoolSubscriptionOrderFromWeChat(c.Request.Context(), order)
+	reconciled, reconcileErr := service.ReconcileTokenPoolSubscriptionOrderFromWeChat(c.Request.Context(), order)
 	if reconcileErr != nil {
 		logger.LogError(c, "admin reconcile failed trade_no="+tradeNo+": "+reconcileErr.Error())
 		common.ApiErrorMsg(c, "reconcile failed: "+reconcileErr.Error())

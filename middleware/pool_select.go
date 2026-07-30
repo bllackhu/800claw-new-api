@@ -7,7 +7,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -49,6 +51,18 @@ func PoolSelect() func(c *gin.Context) {
 			if err != nil {
 				abortWithOpenAiMessage(c, http.StatusInternalServerError, "failed to verify pool subscription")
 				return
+			}
+			if !ok {
+				// Lazy reconcile: if user paid via Native QR but notify was lost, query WeChat once.
+				if _, reconcileErr := service.MaybeReconcilePendingPoolSubscription(c.Request.Context(), tokenId, pool.Id); reconcileErr != nil {
+					logger.LogError(c.Request.Context(), "pool subscription lazy reconcile failed: "+reconcileErr.Error())
+				} else {
+					ok, err = model.TokenHasActivePoolSubscription(tokenId, pool.Id)
+					if err != nil {
+						abortWithOpenAiMessage(c, http.StatusInternalServerError, "failed to verify pool subscription")
+						return
+					}
+				}
 			}
 			if !ok {
 				// First-request free window: if no subscription row exists for this (token, pool),
