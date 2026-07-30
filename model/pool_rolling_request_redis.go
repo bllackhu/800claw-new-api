@@ -114,3 +114,13 @@ func GetFixedWindowCount(ctx context.Context, scopeKey string, windowSeconds int
 	}
 	return val, err
 }
+
+// ResetFixedWindowCount deletes the current bucket counter for the given scope/window.
+// Absent keys are treated as success (already zero). No-op when Redis is disabled.
+func ResetFixedWindowCount(ctx context.Context, scopeKey string, windowSeconds int, nowUnix int64) error {
+	if !common.RedisEnabled || common.RDB == nil {
+		return nil
+	}
+	key := FixedWindowCounterKey(scopeKey, windowSeconds, nowUnix)
+	return common.RDB.Del(ctx, key).Err()
+}

@@ -3738,6 +3738,8 @@
     "Sliding Window (default)": "Sliding Window (default)",
     "Fixed Window": "Fixed Window",
     "Global fixed-window gate is ON. Pools with rate_limit_mode=fixed will use fixed-window enforcement.": "Global fixed-window gate is ON. Pools with rate_limit_mode=fixed will use fixed-window enforcement.",
-    "Global fixed-window gate is OFF. All pools use sliding-window enforcement regardless of per-pool setting.": "Global fixed-window gate is OFF. All pools use sliding-window enforcement regardless of per-pool setting."
+    "Global fixed-window gate is OFF. All pools use sliding-window enforcement regardless of per-pool setting.": "Global fixed-window gate is OFF. All pools use sliding-window enforcement regardless of per-pool setting.",
+    "Reset request count for this window?": "Reset request count for this window?",
+    "Request count reset": "Request count reset"
   }
 }

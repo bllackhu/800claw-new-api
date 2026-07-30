@@ -32,6 +32,7 @@ import {
   hasPoolLlmTokenUsage,
   resolvePoolUsageLocale,
   formatResetTime,
+  isAdmin,
 } from '../../../../helpers';
 import {
   quotaToDisplayAmount,
@@ -51,6 +52,7 @@ import {
   Col,
   Row,
   InputNumber,
+  Modal,
 } from '@douyinfe/semi-ui';
 import {
   IconCreditCard,
@@ -58,6 +60,7 @@ import {
   IconSave,
   IconClose,
   IconKey,
+  IconRefresh,
 } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 import { StatusContext } from '../../../../context/Status';
@@ -85,8 +88,10 @@ const EditTokenModal = (props) => {
   const { t, i18n } = useTranslation();
   const [statusState, statusDispatch] = useContext(StatusContext);
   const [loading, setLoading] = useState(false);
+  const [resettingWindow, setResettingWindow] = useState('');
   const isMobile = useIsMobile();
   const formApiRef = useRef(null);
+  const adminUser = isAdmin();
   const [models, setModels] = useState([]);
   const [groups, setGroups] = useState([]);
   const [showQuotaInput, setShowQuotaInput] = useState(false);
@@ -122,6 +127,40 @@ const EditTokenModal = (props) => {
     (Number(llmLifetime.prompt_tokens) > 0 ||
       Number(llmLifetime.completion_tokens) > 0 ||
       Number(llmLifetime.total_tokens) > 0);
+
+  const handleResetPoolUsageWindow = (windowLabel) => {
+    const tokenId = props.editingToken?.id;
+    if (!tokenId || !windowLabel) {
+      return;
+    }
+    Modal.confirm({
+      title: t('重置'),
+      content: t('Reset request count for this window?'),
+      okText: t('重置'),
+      cancelText: t('取消'),
+      onOk: async () => {
+        setResettingWindow(windowLabel);
+        try {
+          const res = await API.post(`/api/token/${tokenId}/pool_usage/reset`, {
+            window: windowLabel,
+          });
+          const { success, message } = res.data || {};
+          if (!success) {
+            showError(message || t('重置失败'));
+            return;
+          }
+          showSuccess(t('Request count reset'));
+          if (typeof props.refreshTokenPoolUsage === 'function') {
+            await props.refreshTokenPoolUsage(tokenId);
+          }
+        } catch (error) {
+          showError(error?.message || t('重置失败'));
+        } finally {
+          setResettingWindow('');
+        }
+      },
+    });
+  };
 
   const getInitValues = () => ({
     name: '',
@@ -546,7 +585,22 @@ const EditTokenModal = (props) => {
                             bodyStyle={{ padding: 12 }}
                             className='border border-semi-color-border !rounded-xl'
                           >
-                            <div className='text-xs text-semi-color-text-2'>{label}</div>
+                            <div className='flex items-center justify-between gap-2'>
+                              <div className='text-xs text-semi-color-text-2'>{label}</div>
+                              {adminUser &&
+                                poolUsageIsFixed &&
+                                metric?.available && (
+                                  <Button
+                                    theme='borderless'
+                                    type='tertiary'
+                                    size='small'
+                                    icon={<IconRefresh />}
+                                    aria-label={t('重置')}
+                                    loading={resettingWindow === label}
+                                    onClick={() => handleResetPoolUsageWindow(label)}
+                                  />
+                                )}
+                            </div>
                             <div className='text-lg font-semibold mt-1'>
                               {formatPoolUsageCount(
                                 metric,

@@ -262,6 +262,7 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.GET("/:id", controller.GetToken)
 			tokenRoute.POST("/:id/key", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetTokenKey)
 			tokenRoute.POST("/pool_usage", controller.GetTokenPoolUsageBatch)
+			tokenRoute.POST("/:id/pool_usage/reset", middleware.AdminAuth(), controller.ResetTokenFixedPoolUsage)
 			tokenRoute.POST("/", controller.AddToken)
 			tokenRoute.PUT("/", controller.UpdateToken)
 			tokenRoute.DELETE("/:id", controller.DeleteToken)

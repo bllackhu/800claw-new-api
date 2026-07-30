@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,6 +34,17 @@ var buildTokenPoolUsageItemFunc = buildTokenPoolUsageItem
 type TokenPoolUsageBatchRequest struct {
 	Ids     []int    `json:"ids"`
 	Windows []string `json:"windows"`
+}
+
+type TokenPoolUsageResetRequest struct {
+	Window string `json:"window"`
+}
+
+type tokenPoolUsageResetDeps struct {
+	resolvePool          func(token *model.Token) (*model.Pool, error)
+	loadPolicies         func(poolId int, scopeType string) ([]*model.PoolQuotaPolicy, error)
+	resetFixedWindow     func(ctx context.Context, scopeKey string, windowSeconds int, nowUnix int64) error
+	recordManageLog      func(userId int, content string)
 }
 
 type TokenPoolUsageWindow struct {
@@ -525,4 +537,133 @@ func GetTokenPoolUsageSelf(c *gin.Context) {
 	}
 
 	common.ApiSuccess(c, payload)
+}
+
+func resetTokenFixedPoolUsageWithDeps(token *model.Token, window string, adminUserId int, deps tokenPoolUsageResetDeps) error {
+	if token == nil || token.Id <= 0 {
+		return errors.New("invalid token")
+	}
+	windows, windowSeconds, err := normalizeTokenPoolUsageWindows([]string{window})
+	if err != nil {
+		return err
+	}
+	if len(windows) != 1 {
+		return errors.New("exactly one window is required")
+	}
+	window = windows[0]
+	windowSec := windowSeconds[window]
+
+	pool, err := deps.resolvePool(token)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("no resolved pool for token")
+		}
+		return err
+	}
+	if pool == nil {
+		return errors.New("no resolved pool for token")
+	}
+	if pool.RateLimitMode != model.PoolRateLimitModeFixed {
+		return errors.New("pool is not in fixed-window mode")
+	}
+	if !common.PoolFixedWindowEnabled {
+		return errors.New("fixed-window pool usage is disabled")
+	}
+
+	tokenPolicies, err := deps.loadPolicies(pool.Id, model.PoolQuotaScopeToken)
+	if err != nil {
+		return err
+	}
+	validTokenPolicies, maxWindowSeconds := filterValidRequestCountPolicies(tokenPolicies)
+	if len(validTokenPolicies) == 0 || maxWindowSeconds <= 0 {
+		userPolicies, userErr := deps.loadPolicies(pool.Id, model.PoolQuotaScopeUser)
+		if userErr != nil {
+			return userErr
+		}
+		validUserPolicies, _ := filterValidRequestCountPolicies(userPolicies)
+		if len(validUserPolicies) > 0 {
+			return errors.New("token scope policies are not enabled for this pool")
+		}
+		return errors.New("token scope policies are not enabled for this pool")
+	}
+	if windowSec > maxWindowSeconds {
+		return errors.New("window is not retained by this pool")
+	}
+	hasWindowPolicy := false
+	for _, policy := range validTokenPolicies {
+		if policy != nil && policy.WindowSeconds == windowSec {
+			hasWindowPolicy = true
+			break
+		}
+	}
+	if !hasWindowPolicy {
+		return errors.New("window is not configured for this pool")
+	}
+
+	scopeKey := "token:" + strconv.Itoa(token.Id)
+	nowUnix := time.Now().Unix()
+	if err := deps.resetFixedWindow(context.Background(), scopeKey, windowSec, nowUnix); err != nil {
+		return err
+	}
+	if deps.recordManageLog != nil && adminUserId > 0 {
+		deps.recordManageLog(adminUserId, fmt.Sprintf(
+			"reset fixed pool request count for token %d (%s) window %s",
+			token.Id,
+			strings.TrimSpace(token.Name),
+			window,
+		))
+	}
+	return nil
+}
+
+func ResetTokenFixedPoolUsage(c *gin.Context) {
+	adminUserId := c.GetInt("id")
+	if adminUserId <= 0 {
+		common.ApiErrorMsg(c, "invalid user")
+		return
+	}
+
+	tokenId, err := strconv.Atoi(c.Param("id"))
+	if err != nil || tokenId <= 0 {
+		common.ApiError(c, err)
+		return
+	}
+
+	req := TokenPoolUsageResetRequest{}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if strings.TrimSpace(req.Window) == "" {
+		common.ApiErrorMsg(c, "window is required")
+		return
+	}
+
+	token, err := model.GetTokenById(tokenId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	deps := tokenPoolUsageResetDeps{
+		resolvePool: func(token *model.Token) (*model.Pool, error) {
+			return model.ResolvePoolForContext(token.UserId, token.Id, token.Group)
+		},
+		loadPolicies: func(poolId int, scopeType string) ([]*model.PoolQuotaPolicy, error) {
+			return model.GetPoolQuotaPolicies(poolId, model.PoolQuotaMetricRequestCount, scopeType)
+		},
+		resetFixedWindow: model.ResetFixedWindowCount,
+		recordManageLog: func(userId int, content string) {
+			model.RecordLog(userId, model.LogTypeManage, content)
+		},
+	}
+	if err := resetTokenFixedPoolUsageWithDeps(token, req.Window, adminUserId, deps); err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+
+	common.ApiSuccess(c, gin.H{
+		"token_id": tokenId,
+		"window":   strings.TrimSpace(req.Window),
+	})
 }

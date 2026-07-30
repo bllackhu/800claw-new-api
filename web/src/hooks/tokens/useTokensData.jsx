@@ -95,7 +95,6 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
     }, 500);
   };
 
-  // Sync page data from API response
   const loadTokenPoolUsage = async (tokenItems = []) => {
     const requestId = ++poolUsageRequestRef.current;
     const ids = (tokenItems || [])
@@ -145,6 +144,33 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
       if (requestId === poolUsageRequestRef.current) {
         setPoolUsageLoading(false);
       }
+    }
+  };
+
+  const refreshTokenPoolUsageForId = async (tokenId) => {
+    if (!Number.isInteger(tokenId) || tokenId <= 0) {
+      return;
+    }
+    try {
+      const res = await API.post('/api/token/pool_usage', {
+        ids: [tokenId],
+        windows: ['5h', '7d', '30d'],
+      });
+      const { success, message, data } = res.data || {};
+      if (!success) {
+        showError(message || t('加载池使用数据失败'));
+        return;
+      }
+      const item = (data?.items || []).find((entry) => entry?.token_id === tokenId);
+      if (!item) {
+        return;
+      }
+      setTokenPoolUsageById((prev) => ({
+        ...prev,
+        [tokenId]: item,
+      }));
+    } catch (error) {
+      showError(error?.message || t('加载池使用数据失败'));
     }
   };
 
@@ -567,6 +593,7 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
     batchCopyTokens,
     syncPageData,
     loadTokenPoolUsage,
+    refreshTokenPoolUsageForId,
 
     // Translation
     t,

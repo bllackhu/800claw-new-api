@@ -385,6 +385,7 @@ function TokensPage() {
         tokenPoolUsage={tokensData.tokenPoolUsageById?.[editingToken?.id]}
         poolUsageLoading={tokensData.poolUsageLoading}
         poolUsageError={tokensData.poolUsageError}
+        refreshTokenPoolUsage={tokensData.refreshTokenPoolUsageForId}
       />
 
       <CCSwitchModal

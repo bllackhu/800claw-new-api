@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -754,4 +755,143 @@ func TestBuildTokenPoolUsageItem_SlidingModeUnaffected(t *testing.T) {
 	require.EqualValues(t, 55, *item.Usage["5h"].Count)
 	require.Nil(t, item.Usage["5h"].ResetAt, "reset fields must not be populated for sliding pools")
 	require.Nil(t, item.Usage["5h"].ResetInSeconds)
+}
+
+func fixedPoolResetDeps(resetFn func(ctx context.Context, scopeKey string, windowSeconds int, nowUnix int64) error) tokenPoolUsageResetDeps {
+	return tokenPoolUsageResetDeps{
+		resolvePool: func(token *model.Token) (*model.Pool, error) {
+			return &model.Pool{Id: 41, Name: "fixed_pool", RateLimitMode: model.PoolRateLimitModeFixed}, nil
+		},
+		loadPolicies: func(poolId int, scopeType string) ([]*model.PoolQuotaPolicy, error) {
+			if scopeType == model.PoolQuotaScopeToken {
+				return []*model.PoolQuotaPolicy{
+					{
+						Metric:        model.PoolQuotaMetricRequestCount,
+						ScopeType:     model.PoolQuotaScopeToken,
+						WindowSeconds: 5 * 3600,
+						LimitCount:    300,
+						Enabled:       true,
+					},
+					{
+						Metric:        model.PoolQuotaMetricRequestCount,
+						ScopeType:     model.PoolQuotaScopeToken,
+						WindowSeconds: 7 * 24 * 3600,
+						LimitCount:    3000,
+						Enabled:       true,
+					},
+				}, nil
+			}
+			return nil, nil
+		},
+		resetFixedWindow: resetFn,
+		recordManageLog:  func(userId int, content string) {},
+	}
+}
+
+func TestResetTokenFixedPoolUsageWithDeps_ResetsSingleWindow(t *testing.T) {
+	originalGate := common.PoolFixedWindowEnabled
+	common.PoolFixedWindowEnabled = true
+	t.Cleanup(func() { common.PoolFixedWindowEnabled = originalGate })
+
+	token := &model.Token{Id: 81, UserId: 301, Name: "token-reset", Group: "g-fixed"}
+	var deletedScope string
+	var deletedWindow int
+	err := resetTokenFixedPoolUsageWithDeps(token, "5h", 9001, fixedPoolResetDeps(
+		func(ctx context.Context, scopeKey string, windowSeconds int, nowUnix int64) error {
+			deletedScope = scopeKey
+			deletedWindow = windowSeconds
+			require.Equal(t, "token:81", scopeKey)
+			require.Equal(t, 5*3600, windowSeconds)
+			return nil
+		},
+	))
+	require.NoError(t, err)
+	require.Equal(t, "token:81", deletedScope)
+	require.Equal(t, 5*3600, deletedWindow)
+}
+
+func TestResetTokenFixedPoolUsageWithDeps_RejectsSlidingPool(t *testing.T) {
+	originalGate := common.PoolFixedWindowEnabled
+	common.PoolFixedWindowEnabled = true
+	t.Cleanup(func() { common.PoolFixedWindowEnabled = originalGate })
+
+	token := &model.Token{Id: 82, UserId: 302, Name: "token-slide", Group: "g-slide"}
+	resetCalled := false
+	deps := fixedPoolResetDeps(func(ctx context.Context, scopeKey string, windowSeconds int, nowUnix int64) error {
+		resetCalled = true
+		return nil
+	})
+	deps.resolvePool = func(token *model.Token) (*model.Pool, error) {
+		return &model.Pool{Id: 43, Name: "sliding_pool", RateLimitMode: model.PoolRateLimitModeSliding}, nil
+	}
+	err := resetTokenFixedPoolUsageWithDeps(token, "5h", 9001, deps)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "fixed-window")
+	require.False(t, resetCalled)
+}
+
+func TestResetTokenFixedPoolUsageWithDeps_RejectsWhenFixedGateOff(t *testing.T) {
+	originalGate := common.PoolFixedWindowEnabled
+	common.PoolFixedWindowEnabled = false
+	t.Cleanup(func() { common.PoolFixedWindowEnabled = originalGate })
+
+	token := &model.Token{Id: 83, UserId: 303, Name: "token-fixed-off", Group: "g-fixed-off"}
+	resetCalled := false
+	err := resetTokenFixedPoolUsageWithDeps(token, "5h", 9001, fixedPoolResetDeps(
+		func(ctx context.Context, scopeKey string, windowSeconds int, nowUnix int64) error {
+			resetCalled = true
+			return nil
+		},
+	))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "disabled")
+	require.False(t, resetCalled)
+}
+
+func TestResetTokenFixedPoolUsageWithDeps_RejectsInvalidWindow(t *testing.T) {
+	originalGate := common.PoolFixedWindowEnabled
+	common.PoolFixedWindowEnabled = true
+	t.Cleanup(func() { common.PoolFixedWindowEnabled = originalGate })
+
+	token := &model.Token{Id: 84, UserId: 304, Name: "token-invalid-window", Group: "g-fixed"}
+	resetCalled := false
+	err := resetTokenFixedPoolUsageWithDeps(token, "2w", 9001, fixedPoolResetDeps(
+		func(ctx context.Context, scopeKey string, windowSeconds int, nowUnix int64) error {
+			resetCalled = true
+			return nil
+		},
+	))
+	require.Error(t, err)
+	require.False(t, resetCalled)
+}
+
+func TestResetTokenFixedPoolUsageWithDeps_RejectsUserScopeOnly(t *testing.T) {
+	originalGate := common.PoolFixedWindowEnabled
+	common.PoolFixedWindowEnabled = true
+	t.Cleanup(func() { common.PoolFixedWindowEnabled = originalGate })
+
+	token := &model.Token{Id: 85, UserId: 305, Name: "token-user-scope", Group: "g-user"}
+	resetCalled := false
+	deps := fixedPoolResetDeps(func(ctx context.Context, scopeKey string, windowSeconds int, nowUnix int64) error {
+		resetCalled = true
+		return nil
+	})
+	deps.loadPolicies = func(poolId int, scopeType string) ([]*model.PoolQuotaPolicy, error) {
+		if scopeType == model.PoolQuotaScopeUser {
+			return []*model.PoolQuotaPolicy{
+				{
+					Metric:        model.PoolQuotaMetricRequestCount,
+					ScopeType:     model.PoolQuotaScopeUser,
+					WindowSeconds: 7 * 24 * 3600,
+					LimitCount:    10,
+					Enabled:       true,
+				},
+			}, nil
+		}
+		return nil, nil
+	}
+	err := resetTokenFixedPoolUsageWithDeps(token, "7d", 9001, deps)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "token scope")
+	require.False(t, resetCalled)
 }
