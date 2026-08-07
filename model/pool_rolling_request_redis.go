@@ -103,12 +103,13 @@ func FixedWindowResetInSeconds(nowUnix int64, windowSeconds int) int64 {
 
 // GetFixedWindowCount returns the current bucket counter for the given scope/window.
 // Returns 0 when Redis is disabled or the key is absent (fresh bucket).
-func GetFixedWindowCount(ctx context.Context, scopeKey string, windowSeconds int, nowUnix int64) (int64, error) {
+// The counter may be fractional when a model has a decimal cost rate.
+func GetFixedWindowCount(ctx context.Context, scopeKey string, windowSeconds int, nowUnix int64) (float64, error) {
 	if !common.RedisEnabled || common.RDB == nil {
 		return 0, nil
 	}
 	key := FixedWindowCounterKey(scopeKey, windowSeconds, nowUnix)
-	val, err := common.RDB.Get(ctx, key).Int64()
+	val, err := common.RDB.Get(ctx, key).Float64()
 	if err == redis.Nil {
 		return 0, nil
 	}

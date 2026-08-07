@@ -47,6 +47,7 @@ func GetExposedData() gin.H {
 		"cache_ratio":        GetCacheRatioCopy(),
 		"create_cache_ratio": GetCreateCacheRatioCopy(),
 		"model_price":        GetModelPriceCopy(),
+		"model_cost_rate":    GetModelCostRateCopy(),
 	}
 	exposedData.Store(&exposedCache{
 		data:      newData,

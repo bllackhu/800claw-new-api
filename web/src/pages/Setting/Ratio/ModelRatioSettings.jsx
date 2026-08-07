@@ -41,6 +41,7 @@ export default function ModelRatioSettings(props) {
   const [loading, setLoading] = useState(false);
   const [inputs, setInputs] = useState({
     ModelPrice: '',
+    ModelCostRate: '',
     ModelRatio: '',
     CacheRatio: '',
     CreateCacheRatio: '',
@@ -160,6 +161,32 @@ export default function ModelRatioSettings(props) {
                 },
               ]}
               onChange={(value) => setInputs({ ...inputs, ModelPrice: value })}
+            />
+          </Col>
+        </Row>
+        <Row gutter={16}>
+          <Col xs={24} sm={16}>
+            <Form.TextArea
+              label={t('模型请求倍率')}
+              extraText={t(
+                '一次请求消耗多少请求次数，用于固定窗口限流；缺省为 1，可为小数如 2.5',
+              )}
+              placeholder={t(
+                '为一个 JSON 文本，键为模型名称，值为请求倍率，比如 {"gpt-5": 2.5}，一次请求消耗 2.5 次',
+              )}
+              field={'ModelCostRate'}
+              autosize={{ minRows: 6, maxRows: 12 }}
+              trigger='blur'
+              stopValidateWithError
+              rules={[
+                {
+                  validator: (rule, value) => verifyJSON(value),
+                  message: '不是合法的 JSON 字符串',
+                },
+              ]}
+              onChange={(value) =>
+                setInputs({ ...inputs, ModelCostRate: value })
+              }
             />
           </Col>
         </Row>

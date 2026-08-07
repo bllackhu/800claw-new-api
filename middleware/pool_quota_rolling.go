@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common/limiter"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/go-redis/redis/v8"
 	"github.com/gin-gonic/gin"
 )
@@ -176,20 +177,29 @@ func enforceFixedWindow(c *gin.Context, policies []*model.PoolQuotaPolicy, scope
 	ctx := context.Background()
 	nowUnix := time.Now().Unix()
 
-	// Build keys and limits for Lua script
+	// Resolve the per-request cost rate from the original model.
+	modelName := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
+	costRate := ratio_setting.GetModelCostRate(modelName)
+	if costRate <= 0 {
+		costRate = 1.0
+	}
+
+	// Build keys, limits, and per-key increment deltas for the Lua script
 	keys := make([]string, 0, len(policies))
 	limits := make([]string, 0, len(policies))
 	ttls := make([]string, 0, len(policies))
+	deltas := make([]string, 0, len(policies))
 
 	for _, p := range policies {
 		key := model.FixedWindowCounterKey(scopeKey, p.WindowSeconds, nowUnix)
 		keys = append(keys, key)
 		limits = append(limits, strconv.Itoa(p.LimitCount))
 		ttls = append(ttls, strconv.Itoa(p.WindowSeconds))
+		deltas = append(deltas, strconv.FormatFloat(costRate, 'f', -1, 64))
 	}
 
 	// Atomic enforcement via Lua script
-	argv := append(limits, ttls...)
+	argv := append(append(limits, ttls...), deltas...)
 	interfaceArgs := make([]interface{}, len(argv))
 	for i, v := range argv {
 		interfaceArgs[i] = v
@@ -205,13 +215,21 @@ func enforceFixedWindow(c *gin.Context, policies []*model.PoolQuotaPolicy, scope
 		return
 	}
 
-	// Store keys for potential rollback on failed request
+	// Store keys and deltas for potential rollback on failed request
 	c.Set("pool_fixed_window_keys", keys)
+	c.Set("pool_fixed_window_deltas", deltas)
 	c.Next()
 
 	if c.Writer != nil && c.Writer.Status() >= http.StatusBadRequest {
-		for _, k := range keys {
-			_ = common.RDB.Decr(ctx, k).Err()
+		deltaList, _ := c.Get("pool_fixed_window_deltas")
+		for i, k := range keys {
+			delta := 1.0
+			if dl, ok := deltaList.([]string); ok && i < len(dl) {
+				if parsed, err := strconv.ParseFloat(dl[i], 64); err == nil {
+					delta = parsed
+				}
+			}
+			_ = common.RDB.IncrByFloat(ctx, k, -delta).Err()
 		}
 	}
 }

@@ -29,7 +29,7 @@ func TestBuildTokenPoolUsageItem_NoResolvedPool(t *testing.T) {
 		loadPolicies: func(poolId int, scopeType string) ([]*model.PoolQuotaPolicy, error) {
 			return nil, nil
 		},
-		countRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+		countRequestsByToken: func(tokenId int, windowSeconds int) (float64, error) {
 			return 0, nil
 		},
 	})
@@ -66,7 +66,7 @@ func TestBuildTokenPoolUsageItem_UserScopeOnly(t *testing.T) {
 			}
 			return nil, nil
 		},
-		countRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+		countRequestsByToken: func(tokenId int, windowSeconds int) (float64, error) {
 			return 0, nil
 		},
 	})
@@ -102,7 +102,7 @@ func TestBuildTokenPoolUsageItem_WindowNotRetained(t *testing.T) {
 			}
 			return nil, nil
 		},
-		countRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+		countRequestsByToken: func(tokenId int, windowSeconds int) (float64, error) {
 			return 0, nil
 		},
 	})
@@ -146,7 +146,7 @@ func TestBuildTokenPoolUsageItem_IncludeWindowLimitCount(t *testing.T) {
 				},
 			}, nil
 		},
-		countRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+		countRequestsByToken: func(tokenId int, windowSeconds int) (float64, error) {
 			if windowSeconds == 5*3600 {
 				return 4, nil
 			}
@@ -336,7 +336,7 @@ func TestGetTokenPoolUsageSelf_LLMTokenAggregates(t *testing.T) {
 	require.EqualValues(t, 1643, payload.LlmTokenUsage.Lifetime.TotalTokens)
 }
 
-func countPtr(v int64) *int64 {
+func countPtr(v float64) *float64 {
 	return &v
 }
 
@@ -532,7 +532,7 @@ func TestBuildTokenPoolUsageItem_RequestCountsSurvivePoolChange(t *testing.T) {
 			Enabled:       true,
 		},
 	}
-	countFn := func(tokenId int, windowSeconds int) (int64, error) {
+	countFn := func(tokenId int, windowSeconds int) (float64, error) {
 		require.Equal(t, token.Id, tokenId)
 		return 42, nil
 	}
@@ -647,11 +647,11 @@ func TestBuildTokenPoolUsageItem_FixedWindowUsesRedisCount(t *testing.T) {
 			}
 			return nil, nil
 		},
-		countRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+		countRequestsByToken: func(tokenId int, windowSeconds int) (float64, error) {
 			slidingCalled = true
 			return 349, nil
 		},
-		countFixedRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+		countFixedRequestsByToken: func(tokenId int, windowSeconds int) (float64, error) {
 			fixedCalled = true
 			require.Equal(t, token.Id, tokenId)
 			require.Equal(t, 5*3600, windowSeconds)
@@ -695,11 +695,11 @@ func TestBuildTokenPoolUsageItem_FixedWindowFallsBackWhenGlobalGateOff(t *testin
 			}
 			return nil, nil
 		},
-		countRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+		countRequestsByToken: func(tokenId int, windowSeconds int) (float64, error) {
 			slidingCalled = true
 			return 349, nil
 		},
-		countFixedRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+		countFixedRequestsByToken: func(tokenId int, windowSeconds int) (float64, error) {
 			fixedCalled = true
 			return 0, nil
 		},
@@ -739,11 +739,11 @@ func TestBuildTokenPoolUsageItem_SlidingModeUnaffected(t *testing.T) {
 			}
 			return nil, nil
 		},
-		countRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+		countRequestsByToken: func(tokenId int, windowSeconds int) (float64, error) {
 			slidingCalled = true
 			return 55, nil
 		},
-		countFixedRequestsByToken: func(tokenId int, windowSeconds int) (int64, error) {
+		countFixedRequestsByToken: func(tokenId int, windowSeconds int) (float64, error) {
 			fixedCalled = true
 			return 0, nil
 		},
