@@ -260,6 +260,9 @@ func migrateDB() error {
 	if err := migratePoolRateLimitMode(); err != nil {
 		return err
 	}
+	if err := migratePoolSQLiteRepairRateLimitMode(); err != nil {
+		return err
+	}
 
 	err := DB.AutoMigrate(
 		&Channel{},
@@ -543,8 +546,75 @@ func migratePoolRateLimitMode() error {
 		if DB.Migrator().HasColumn(&Pool{}, "rate_limit_mode") {
 			return nil
 		}
-		return DB.Exec("ALTER TABLE pools ADD COLUMN rate_limit_mode VARCHAR(16) DEFAULT 'sliding'").Error
+		return DB.Exec("ALTER TABLE `pools` ADD COLUMN `rate_limit_mode` varchar(16) DEFAULT 'sliding'").Error
 	}
+}
+
+// migratePoolSQLiteRepairRateLimitMode rebuilds the pools table when rate_limit_mode
+// was added without backtick quoting (see migratePoolRateLimitMode). glebarez/sqlite's
+// AlterColumn regex cannot locate an unquoted column name in the DDL, which makes
+// AutoMigrate fail with "failed to look up field rate_limit_mode from DDL".
+func migratePoolSQLiteRepairRateLimitMode() error {
+	if !common.UsingSQLite {
+		return nil
+	}
+	const tableName = "pools"
+	if !DB.Migrator().HasTable(tableName) {
+		return nil
+	}
+	var createSQL string
+	if err := DB.Raw("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", tableName).Scan(&createSQL).Error; err != nil {
+		return err
+	}
+	if createSQL == "" || !strings.Contains(createSQL, "rate_limit_mode") {
+		return nil
+	}
+	quoted := strings.Contains(createSQL, "`rate_limit_mode`") ||
+		strings.Contains(createSQL, "\"rate_limit_mode\"") ||
+		strings.Contains(createSQL, "'rate_limit_mode'")
+	if quoted {
+		return nil
+	}
+
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("DROP TABLE IF EXISTS `pools__new`").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("CREATE TABLE `pools__new` (" +
+			"`id` integer," +
+			"`name` varchar(64) NOT NULL," +
+			"`description` varchar(255) DEFAULT ''," +
+			"`status` integer DEFAULT 1," +
+			"`monthly_price_cny` real DEFAULT 0," +
+			"`billing_currency` varchar(8) DEFAULT 'CNY'," +
+			"`billing_period_seconds` integer DEFAULT 2592000," +
+			"`created_at` integer," +
+			"`updated_at` integer," +
+			"`rate_limit_mode` varchar(16) DEFAULT 'sliding'," +
+			"`plan_code` varchar(32) DEFAULT ''," +
+			"`plan_group` varchar(32) DEFAULT ''," +
+			"`plan_tier` integer DEFAULT 0," +
+			"`display_name` varchar(128) DEFAULT ''," +
+			"`display_order` integer DEFAULT 0," +
+			"PRIMARY KEY (`id`)" +
+			")").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("INSERT INTO `pools__new` (" +
+			"`id`, `name`, `description`, `status`, `monthly_price_cny`, `billing_currency`, `billing_period_seconds`, `created_at`, `updated_at`, `rate_limit_mode`, `plan_code`, `plan_group`, `plan_tier`, `display_name`, `display_order`" +
+			") SELECT " +
+			"`id`, `name`, `description`, `status`, `monthly_price_cny`, `billing_currency`, `billing_period_seconds`, `created_at`, `updated_at`, `rate_limit_mode`, `plan_code`, `plan_group`, `plan_tier`, `display_name`, `display_order` " +
+			"FROM `pools`").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DROP TABLE `pools`").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("ALTER TABLE `pools__new` RENAME TO `pools`").Error; err != nil {
+			return err
+		}
+		return tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS `idx_pools_name` ON `pools`(`name`)").Error
+	})
 }
 
 // migratePoolDecimalMonthlyPrice keeps monthly_price_cny as decimal(10,2) on MySQL/PostgreSQL.
