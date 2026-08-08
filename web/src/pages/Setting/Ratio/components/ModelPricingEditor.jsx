@@ -183,6 +183,13 @@ export default function ModelPricingEditor({
         ),
       },
       {
+        title: t('模型请求倍率'),
+        dataIndex: 'costRate',
+        key: 'costRate',
+        render: (_, record) =>
+          hasValue(record.costRate) ? `${record.costRate}x` : t('默认 1'),
+      },
+      {
         title: t('价格摘要'),
         dataIndex: 'summary',
         key: 'summary',
@@ -388,6 +395,26 @@ export default function ModelPricingEditor({
                     )}
                   </div>
                 </div>
+
+                <Card
+                  bodyStyle={{ padding: 16 }}
+                  style={{
+                    marginBottom: 16,
+                    background: 'var(--semi-color-fill-0)',
+                  }}
+                >
+                  <div className='font-medium mb-3'>{t('请求计数设置')}</div>
+                  <PriceInput
+                    label={t('模型请求倍率')}
+                    value={selectedModel.costRate}
+                    placeholder={t('输入请求倍率，例如 2.5')}
+                    suffix='x'
+                    onChange={(value) => handleNumericFieldChange('costRate', value)}
+                    extraText={t(
+                      '一次请求消耗多少请求次数，用于固定窗口限流；缺省为 1，可为小数如 2.5',
+                    )}
+                  />
+                </Card>
 
                 {selectedWarnings.length > 0 ? (
                   <Card

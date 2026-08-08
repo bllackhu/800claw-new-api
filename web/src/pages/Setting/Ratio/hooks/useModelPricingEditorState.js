@@ -9,6 +9,7 @@ const EMPTY_MODEL = {
   name: '',
   billingMode: 'per-token',
   fixedPrice: '',
+  costRate: '',
   inputPrice: '',
   completionPrice: '',
   lockedCompletionRatio: '',
@@ -111,6 +112,7 @@ const buildModelState = (name, sourceMaps) => {
     sourceMaps.AudioCompletionRatio[name],
   );
   const fixedPrice = toNumericString(sourceMaps.ModelPrice[name]);
+  const costRate = toNumericString(sourceMaps.ModelCostRate[name]);
   const inputPrice = ratioToBasePrice(modelRatio);
   const inputPriceNumber = toNumberOrNull(inputPrice);
   const audioInputPrice =
@@ -123,6 +125,7 @@ const buildModelState = (name, sourceMaps) => {
     name,
     billingMode: hasValue(fixedPrice) ? 'per-request' : 'per-token',
     fixedPrice,
+    costRate,
     inputPrice,
     completionRatioLocked: completionRatioMeta.locked,
     lockedCompletionRatio: completionRatioMeta.ratio,
@@ -167,6 +170,7 @@ const buildModelState = (name, sourceMaps) => {
       imageRatio,
       audioRatio,
       audioCompletionRatio,
+      modelCostRate: costRate,
     },
     hasConflict:
       hasValue(fixedPrice) &&
@@ -278,6 +282,7 @@ export const buildOptionalFieldToggles = (model) => ({
 const serializeModel = (model, t) => {
   const result = {
     ModelPrice: null,
+    ModelCostRate: null,
     ModelRatio: null,
     CompletionRatio: null,
     CacheRatio: null,
@@ -286,6 +291,10 @@ const serializeModel = (model, t) => {
     AudioRatio: null,
     AudioCompletionRatio: null,
   };
+
+  if (hasValue(model.costRate)) {
+    result.ModelCostRate = toNormalizedNumber(model.costRate);
+  }
 
   if (model.billingMode === 'per-request') {
     if (hasValue(model.fixedPrice)) {
@@ -396,6 +405,12 @@ const serializeModel = (model, t) => {
 export const buildPreviewRows = (model, t) => {
   if (!model) return [];
 
+  const costRateRow = {
+    key: 'ModelCostRate',
+    label: 'ModelCostRate',
+    value: hasValue(model.costRate) ? model.costRate : t('默认 1'),
+  };
+
   if (model.billingMode === 'per-request') {
     return [
       {
@@ -403,6 +418,7 @@ export const buildPreviewRows = (model, t) => {
         label: 'ModelPrice',
         value: hasValue(model.fixedPrice) ? model.fixedPrice : t('空'),
       },
+      costRateRow,
     ];
   }
 
@@ -416,6 +432,7 @@ export const buildPreviewRows = (model, t) => {
           ? model.rawRatios.modelRatio
           : t('空'),
       },
+      costRateRow,
       {
         key: 'CompletionRatio',
         label: 'CompletionRatio',
@@ -521,6 +538,7 @@ export const buildPreviewRows = (model, t) => {
           ? formatNumber(audioOutputPrice / audioInputPrice)
           : t('空'),
     },
+    costRateRow,
   ];
 };
 
@@ -544,6 +562,7 @@ export function useModelPricingEditorState({
   useEffect(() => {
     const sourceMaps = {
       ModelPrice: parseOptionJSON(options.ModelPrice),
+      ModelCostRate: parseOptionJSON(options.ModelCostRate),
       ModelRatio: parseOptionJSON(options.ModelRatio),
       CompletionRatio: parseOptionJSON(options.CompletionRatio),
       CompletionRatioMeta: parseOptionJSON(options.CompletionRatioMeta),
@@ -557,6 +576,7 @@ export function useModelPricingEditorState({
     const names = new Set([
       ...candidateModelNames,
       ...Object.keys(sourceMaps.ModelPrice),
+      ...Object.keys(sourceMaps.ModelCostRate),
       ...Object.keys(sourceMaps.ModelRatio),
       ...Object.keys(sourceMaps.CompletionRatio),
       ...Object.keys(sourceMaps.CompletionRatioMeta),
@@ -847,6 +867,7 @@ export function useModelPricingEditorState({
           ...model,
           billingMode: selectedModel.billingMode,
           fixedPrice: selectedModel.fixedPrice,
+          costRate: selectedModel.costRate,
           inputPrice: selectedModel.inputPrice,
           completionPrice: selectedModel.completionPrice,
           cachePrice: selectedModel.cachePrice,
@@ -906,6 +927,7 @@ export function useModelPricingEditorState({
     try {
       const output = {
         ModelPrice: {},
+        ModelCostRate: {},
         ModelRatio: {},
         CompletionRatio: {},
         CacheRatio: {},
