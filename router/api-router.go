@@ -288,6 +288,7 @@ func SetApiRouter(router *gin.Engine) {
 				tokenUsageRoute.GET("/pool/plans", controller.GetTokenPoolPlans)
 				tokenUsageRoute.GET("/pool/subscription/order", controller.GetTokenPoolSubscriptionOrderSelf)
 				tokenUsageRoute.GET("/pool/subscription/wechat/appid", controller.WechatPayJsapiAppid)
+				tokenUsageRoute.GET("/logs", controller.GetLogsByToken)
 			}
 		}
 

@@ -450,6 +450,43 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	return logs, total, err
 }
 
+// GetLogsByTokenId 查询指定 API 令牌的消费日志，支持分页与时间/模型筛选。
+func GetLogsByTokenId(tokenId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, startIdx int, num int) (logs []*Log, total int64, err error) {
+	var tx *gorm.DB
+	if logType == LogTypeUnknown {
+		tx = LOG_DB.Where("logs.token_id = ?", tokenId)
+	} else {
+		tx = LOG_DB.Where("logs.token_id = ? and logs.type = ?", tokenId, logType)
+	}
+
+	if modelName != "" {
+		modelNamePattern, err := substringLikePattern(modelName)
+		if err != nil {
+			return nil, 0, err
+		}
+		tx = tx.Where("logs.model_name LIKE ? ESCAPE '!'", modelNamePattern)
+	}
+	if startTimestamp != 0 {
+		tx = tx.Where("logs.created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("logs.created_at <= ?", endTimestamp)
+	}
+	err = tx.Model(&Log{}).Limit(logSearchCountLimit).Count(&total).Error
+	if err != nil {
+		common.SysError("failed to count token logs: " + err.Error())
+		return nil, 0, errors.New("查询日志失败")
+	}
+	err = tx.Order("logs.id desc").Limit(num).Offset(startIdx).Find(&logs).Error
+	if err != nil {
+		common.SysError("failed to search token logs: " + err.Error())
+		return nil, 0, errors.New("查询日志失败")
+	}
+
+	formatUserLogs(logs, startIdx)
+	return logs, total, err
+}
+
 type Stat struct {
 	Quota int `json:"quota"`
 	Rpm   int `json:"rpm"`

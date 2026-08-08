@@ -53,6 +53,32 @@ func GetUserLogs(c *gin.Context) {
 	return
 }
 
+// GetLogsByToken 返回当前 API 令牌的消费日志（分页），由 TokenAuthReadOnly 鉴权。
+func GetLogsByToken(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	tokenId := c.GetInt("token_id")
+	if tokenId == 0 {
+		c.JSON(200, gin.H{
+			"success": false,
+			"message": "无效的令牌",
+		})
+		return
+	}
+	logType, _ := strconv.Atoi(c.Query("type"))
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	modelName := c.Query("model_name")
+	logs, total, err := model.GetLogsByTokenId(tokenId, logType, startTimestamp, endTimestamp, modelName, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(logs)
+	common.ApiSuccess(c, pageInfo)
+	return
+}
+
 // Deprecated: SearchAllLogs 已废弃，前端未使用该接口。
 func SearchAllLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
