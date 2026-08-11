@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -576,6 +577,178 @@ func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	}
 	tx.Where("type = ?", LogTypeConsume).Scan(&token)
 	return token
+}
+
+// TokenRequestRank 单个令牌在统计时间窗内的请求聚合结果。
+type TokenRequestRank struct {
+	TokenId          int                `json:"token_id"`
+	TokenName        string             `json:"token_name"`
+	Username         string             `json:"username"`
+	RequestCount     int64              `json:"request_count"`
+	Quota            int64              `json:"quota"`
+	PromptTokens     int64              `json:"prompt_tokens"`
+	CompletionTokens int64              `json:"completion_tokens"`
+	ModelCount       int64              `json:"model_count"`
+	Models           []*TokenModelUsage `json:"models" gorm:"-"`
+}
+
+// TokenModelUsage 单个令牌在统计时间窗内按模型维度的请求聚合结果。
+type TokenModelUsage struct {
+	ModelName    string `json:"model_name"`
+	RequestCount int64  `json:"request_count"`
+}
+
+// tokenModelUsageRow 按 (token_id, model_name) 聚合的内部扫描结果。
+type tokenModelUsageRow struct {
+	TokenId      int    `json:"token_id"`
+	ModelName    string `json:"model_name"`
+	RequestCount int64  `json:"request_count"`
+}
+
+// TokenRequestRankTotal 令牌请求统计的整体汇总（与 ranking 使用相同过滤条件）。
+type TokenRequestRankTotal struct {
+	RequestCount int64 `json:"request_count"`
+	Quota        int64 `json:"quota"`
+	TotalTokens  int64 `json:"total_tokens"`
+	TokenCount   int64 `json:"token_count"`
+}
+
+// GetTopTokenRequestCounts 按令牌聚合消费日志(type=2)的请求次数。
+// ranking 返回请求量最高的 top 个令牌（用于图表）；items 返回分页后的完整令牌列表（用于表格）；
+// total 为整体汇总。过滤条件与 GetAllLogs 保持一致：时间范围、模型名、用户名、令牌名、渠道、分组。
+func GetTopTokenRequestCounts(startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string, top int, page int, pageSize int) (ranking []*TokenRequestRank, items []*TokenRequestRank, total TokenRequestRankTotal, err error) {
+	if top <= 0 || top > 20 {
+		top = 10
+	}
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	var modelNamePattern, tokenNamePattern string
+	if modelName != "" {
+		modelNamePattern, err = substringLikePattern(modelName)
+		if err != nil {
+			return nil, nil, total, err
+		}
+	}
+	if tokenName != "" {
+		tokenNamePattern, err = substringLikePattern(tokenName)
+		if err != nil {
+			return nil, nil, total, err
+		}
+	}
+
+	buildTx := func() *gorm.DB {
+		tx := LOG_DB.Model(&Log{}).Where("logs.type = ?", LogTypeConsume)
+		if modelName != "" {
+			tx = tx.Where("logs.model_name LIKE ? ESCAPE '!'", modelNamePattern)
+		}
+		if username != "" {
+			tx = tx.Where("logs.username = ?", username)
+		}
+		if tokenName != "" {
+			tx = tx.Where("logs.token_name LIKE ? ESCAPE '!'", tokenNamePattern)
+		}
+		if startTimestamp != 0 {
+			tx = tx.Where("logs.created_at >= ?", startTimestamp)
+		}
+		if endTimestamp != 0 {
+			tx = tx.Where("logs.created_at <= ?", endTimestamp)
+		}
+		if channel != 0 {
+			tx = tx.Where("logs.channel_id = ?", channel)
+		}
+		if group != "" {
+			tx = tx.Where("logs."+logGroupCol+" = ?", group)
+		}
+		return tx
+	}
+
+	rankSelect := "token_id, token_name, username, COUNT(*) AS request_count, SUM(quota) AS quota, SUM(prompt_tokens) AS prompt_tokens, SUM(completion_tokens) AS completion_tokens"
+
+	err = buildTx().
+		Select(rankSelect).
+		Group("token_id, token_name, username").
+		Order("request_count DESC").
+		Limit(top).
+		Scan(&ranking).Error
+	if err != nil {
+		return nil, nil, total, err
+	}
+
+	err = buildTx().
+		Select(rankSelect).
+		Group("token_id, token_name, username").
+		Order("request_count DESC").
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		Scan(&items).Error
+	if err != nil {
+		return nil, nil, total, err
+	}
+
+	err = buildTx().
+		Select("COUNT(*) AS request_count, COALESCE(SUM(quota), 0) AS quota, COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS total_tokens, COUNT(DISTINCT token_id) AS token_count").
+		Scan(&total).Error
+	if err != nil {
+		return nil, nil, total, err
+	}
+
+	tokenIDs := make([]int, 0, len(ranking)+len(items))
+	seen := make(map[int]bool)
+	collect := func(ranks []*TokenRequestRank) {
+		for _, r := range ranks {
+			if r != nil && !seen[r.TokenId] {
+				seen[r.TokenId] = true
+				tokenIDs = append(tokenIDs, r.TokenId)
+			}
+		}
+	}
+	collect(ranking)
+	collect(items)
+	if len(tokenIDs) > 0 {
+		var rows []tokenModelUsageRow
+		err = buildTx().
+			Select("token_id, model_name, COUNT(*) AS request_count").
+			Where("logs.token_id IN ?", tokenIDs).
+			Group("token_id, model_name").
+			Scan(&rows).Error
+		if err != nil {
+			return nil, nil, total, err
+		}
+		byToken := make(map[int][]*TokenModelUsage, len(rows))
+		for _, row := range rows {
+			byToken[row.TokenId] = append(byToken[row.TokenId], &TokenModelUsage{
+				ModelName:    row.ModelName,
+				RequestCount: row.RequestCount,
+			})
+		}
+		for _, usages := range byToken {
+			sort.SliceStable(usages, func(i, j int) bool {
+				if usages[i].RequestCount != usages[j].RequestCount {
+					return usages[i].RequestCount > usages[j].RequestCount
+				}
+				return usages[i].ModelName < usages[j].ModelName
+			})
+		}
+		merge := func(ranks []*TokenRequestRank) {
+			for _, r := range ranks {
+				if r == nil {
+					continue
+				}
+				usages := byToken[r.TokenId]
+				r.ModelCount = int64(len(usages))
+				r.Models = usages
+			}
+		}
+		merge(ranking)
+		merge(items)
+	}
+
+	return ranking, items, total, nil
 }
 
 func DeleteOldLog(ctx context.Context, targetTimestamp int64, limit int) (int64, error) {

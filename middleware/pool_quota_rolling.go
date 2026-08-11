@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -180,7 +181,7 @@ func enforceFixedWindow(c *gin.Context, policies []*model.PoolQuotaPolicy, scope
 	// Resolve the per-request cost rate from the original model.
 	modelName := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
 	costRate := ratio_setting.GetModelCostRate(modelName)
-	if costRate <= 0 {
+	if costRate <= 0 || math.IsNaN(costRate) || math.IsInf(costRate, 0) {
 		costRate = 1.0
 	}
 

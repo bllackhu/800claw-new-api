@@ -6,7 +6,9 @@
 local incremented = {}
 for i = 1, #KEYS do
     local delta = tonumber(ARGV[2 * #KEYS + i])
-    local count = redis.call('INCRBYFLOAT', KEYS[i], delta)
+    -- INCRBYFLOAT replies with a bulk string (e.g. "3.5"); convert to a number
+    -- so the comparison below does not raise "attempt to compare string with number".
+    local count = tonumber(redis.call('INCRBYFLOAT', KEYS[i], delta))
     redis.call('EXPIRE', KEYS[i], tonumber(ARGV[#KEYS + i]) + 60)
     table.insert(incremented, {key = KEYS[i], delta = delta})
     if count > tonumber(ARGV[i]) then

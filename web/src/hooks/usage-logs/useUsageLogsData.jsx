@@ -163,7 +163,9 @@ export const useLogsData = () => {
   };
 
   // Column visibility state
-  const [visibleColumns, setVisibleColumns] = useState(getInitialVisibleColumns);
+  const [visibleColumns, setVisibleColumns] = useState(
+    getInitialVisibleColumns,
+  );
   const [showColumnSelector, setShowColumnSelector] = useState(false);
   const [billingDisplayMode, setBillingDisplayMode] = useState(
     getInitialBillingDisplayMode,
@@ -185,6 +187,18 @@ export const useLogsData = () => {
     useState(null);
   const [showParamOverrideModal, setShowParamOverrideModal] = useState(false);
   const [paramOverrideTarget, setParamOverrideTarget] = useState(null);
+
+  // Token request ranking drawer state
+  const [showTokenRanking, setShowTokenRanking] = useState(false);
+  const [tokenRanking, setTokenRanking] = useState([]);
+  const [tokenRankingItems, setTokenRankingItems] = useState([]);
+  const [tokenRankingTotal, setTokenRankingTotal] = useState({
+    request_count: 0,
+    quota: 0,
+    total_tokens: 0,
+    token_count: 0,
+  });
+  const [tokenRankingLoading, setTokenRankingLoading] = useState(false);
 
   // Initialize default column visibility
   const initDefaultColumns = () => {
@@ -323,6 +337,55 @@ export const useLogsData = () => {
     setLoadingStat(false);
   };
 
+  // Load top-token request-count ranking (admin). filtersOverride lets the
+  // drawer's own filter bar pass edited values without touching the list form;
+  // when omitted, the current page filters are used.
+  // `page`/`pageSize` control the paginated table list; the chart always uses top-10.
+  const loadTokenRanking = async (filtersOverride, page = 1, pageSize = 20) => {
+    setTokenRankingLoading(true);
+    let params;
+    if (filtersOverride) {
+      params = filtersOverride;
+    } else {
+      const formValues = getFormValues();
+      params = {
+        start_timestamp: Date.parse(formValues.start_timestamp) / 1000,
+        end_timestamp: Date.parse(formValues.end_timestamp) / 1000,
+        token_name: formValues.token_name,
+        model_name: formValues.model_name,
+        username: formValues.username,
+        channel: formValues.channel,
+        group: formValues.group,
+      };
+    }
+    const query = Object.keys(params)
+      .map((key) => `${key}=${params[key] ?? ''}`)
+      .join('&');
+    const url = `/api/log/token_ranking?${query}&limit=10&page=${page}&page_size=${pageSize}`;
+    try {
+      const res = await API.get(encodeURI(url));
+      const { success, message, data } = res.data;
+      if (success) {
+        setTokenRanking(data.ranking || []);
+        setTokenRankingItems(data.items || []);
+        setTokenRankingTotal(
+          data.total || {
+            request_count: 0,
+            quota: 0,
+            total_tokens: 0,
+            token_count: 0,
+          },
+        );
+      } else {
+        showError(message);
+      }
+    } catch (error) {
+      showError(error.message);
+    } finally {
+      setTokenRankingLoading(false);
+    }
+  };
+
   // User info function
   const showUserInfoFunc = async (userId) => {
     if (!isAdminUser) {
@@ -382,7 +445,10 @@ export const useLogsData = () => {
       let other = getLogOther(logs[i].other);
       let expandDataLocal = [];
 
-      if (isAdminUser && (logs[i].type === 0 || logs[i].type === 2 || logs[i].type === 6)) {
+      if (
+        isAdminUser &&
+        (logs[i].type === 0 || logs[i].type === 2 || logs[i].type === 6)
+      ) {
         expandDataLocal.push({
           key: t('渠道信息'),
           value: `${logs[i].channel} - ${logs[i].channel_name || '[未知]'}`,
@@ -592,7 +658,14 @@ export const useLogsData = () => {
           expandDataLocal.push({
             key: t('失败原因'),
             value: (
-              <div style={{ maxWidth: 600, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.6 }}>
+              <div
+                style={{
+                  maxWidth: 600,
+                  whiteSpace: 'normal',
+                  wordBreak: 'break-word',
+                  lineHeight: 1.6,
+                }}
+              >
                 {other.reason}
               </div>
             ),
@@ -609,7 +682,8 @@ export const useLogsData = () => {
         const ss = other.stream_status;
         const isOk = ss.status === 'ok';
         const statusLabel = isOk ? '✓ ' + t('正常') : '✗ ' + t('异常');
-        let streamValue = statusLabel + ' (' + (ss.end_reason || 'unknown') + ')';
+        let streamValue =
+          statusLabel + ' (' + (ss.end_reason || 'unknown') + ')';
         if (ss.error_count > 0) {
           streamValue += ` [${t('软错误')}: ${ss.error_count}]`;
         }
@@ -624,7 +698,14 @@ export const useLogsData = () => {
           expandDataLocal.push({
             key: t('流错误详情'),
             value: (
-              <div style={{ maxWidth: 600, whiteSpace: 'pre-line', wordBreak: 'break-word', lineHeight: 1.6 }}>
+              <div
+                style={{
+                  maxWidth: 600,
+                  whiteSpace: 'pre-line',
+                  wordBreak: 'break-word',
+                  lineHeight: 1.6,
+                }}
+              >
                 {ss.errors.join('\n')}
               </div>
             ),
@@ -953,6 +1034,15 @@ export const useLogsData = () => {
     showParamOverrideModal,
     setShowParamOverrideModal,
     paramOverrideTarget,
+
+    // Token request ranking drawer
+    showTokenRanking,
+    setShowTokenRanking,
+    tokenRanking,
+    tokenRankingItems,
+    tokenRankingTotal,
+    tokenRankingLoading,
+    loadTokenRanking,
 
     // Functions
     loadLogs,
