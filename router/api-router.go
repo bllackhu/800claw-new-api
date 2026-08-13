@@ -184,6 +184,15 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.POST("/migrate_console_setting", controller.MigrateConsoleSetting) // 用于迁移检测的旧键，下个版本会删除
 		}
 
+		// Capability management (admin)
+		capabilityRoute := apiRouter.Group("/capability")
+		capabilityRoute.Use(middleware.AdminAuth())
+		{
+			capabilityRoute.GET("/settings", controller.GetCapabilitySettings)
+			capabilityRoute.PUT("/settings", controller.UpdateCapabilitySettings)
+			capabilityRoute.GET("/stats", controller.GetCapabilityStats)
+		}
+
 		// Custom OAuth provider management (root only)
 		customOAuthRoute := apiRouter.Group("/custom-oauth-provider")
 		customOAuthRoute.Use(middleware.RootAuth())
@@ -268,6 +277,9 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.DELETE("/:id", controller.DeleteToken)
 			tokenRoute.POST("/batch", controller.DeleteTokenBatch)
 			tokenRoute.POST("/batch/keys", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetTokenKeysBatch)
+			tokenRoute.GET("/:id/capabilities", controller.GetTokenCapabilities)
+			tokenRoute.POST("/:id/capabilities", controller.AddOrUpdateTokenCapability)
+			tokenRoute.DELETE("/:id/capabilities/:capability", controller.DeleteTokenCapability)
 		}
 
 		usageRoute := apiRouter.Group("/usage")

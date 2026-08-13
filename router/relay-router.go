@@ -70,6 +70,7 @@ func SetRelayRouter(router *gin.Engine) {
 	relayV1Router.Use(middleware.RouteTag("relay"))
 	relayV1Router.Use(middleware.SystemPerformanceCheck())
 	relayV1Router.Use(middleware.TokenAuth())
+	relayV1Router.Use(middleware.CapabilityAuth())
 	relayV1Router.Use(middleware.PoolSelect())
 	relayV1Router.Use(middleware.PoolRollingQuota())
 	relayV1Router.Use(middleware.ModelRequestRateLimit())

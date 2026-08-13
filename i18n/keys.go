@@ -318,6 +318,17 @@ const (
 	MsgDistributorInvalidParseModel   = "distributor.invalid_request_parse_model"
 )
 
+// Capability related messages
+const (
+	MsgCapabilityNotGranted         = "capability.not_granted"
+	MsgCapabilityExhausted          = "capability.exhausted"
+	MsgCapabilityInsufficientQuota  = "capability.insufficient_quota"
+	MsgCapabilityLoadFailed         = "capability.load_failed"
+	MsgCapabilityInvalidName        = "capability.invalid_name"
+	MsgCapabilityInvalidMode        = "capability.invalid_mode"
+	MsgCapabilityInvalidGranted     = "capability.invalid_granted"
+)
+
 // Custom OAuth provider related messages
 const (
 	MsgCustomOAuthNotFound          = "custom_oauth.not_found"

@@ -61,6 +61,13 @@ const (
 
 	ContextKeyLocalCountTokens ContextKey = "local_count_tokens"
 
+	/* capability related keys (set by CapabilityAuth, consumed by capability billing) */
+	ContextKeyCapability      ContextKey = "capability"
+	ContextKeyCapabilityMode  ContextKey = "capability_mode"
+	ContextKeyCapabilityUnit  ContextKey = "capability_unit"
+	ContextKeyCapabilityPrice ContextKey = "capability_price"
+	ContextKeySTTDurationMs   ContextKey = "stt_duration_ms"
+
 	ContextKeySystemPromptOverride ContextKey = "system_prompt_override"
 
 	// ContextKeyFileSourcesToCleanup stores file sources that need cleanup when request ends

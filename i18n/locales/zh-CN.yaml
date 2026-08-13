@@ -268,6 +268,15 @@ distributor.no_available_channel: "分组 {{.Group}} 下模型 {{.Model}} 无可
 distributor.invalid_midjourney_request: "无效的midjourney请求，{{.Error}}"
 distributor.invalid_request_parse_model: "无效的请求，无法解析模型"
 
+# Capability messages
+capability.not_granted: "该令牌未开通此能力"
+capability.exhausted: "该能力调用次数已用尽"
+capability.insufficient_quota: "钱包配额不足，无法调用该能力"
+capability.load_failed: "加载能力授权信息失败"
+capability.invalid_name: "无效的能力名称"
+capability.invalid_mode: "无效的能力模式，必须是 count 或 wallet"
+capability.invalid_granted: "无效的授权次数，必须是非负整数"
+
 # Custom OAuth provider messages
 custom_oauth.not_found: "自定义 OAuth 提供商不存在"
 custom_oauth.slug_empty: "标识符不能为空"

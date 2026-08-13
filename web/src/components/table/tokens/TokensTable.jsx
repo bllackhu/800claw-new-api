@@ -52,6 +52,7 @@ const TokensTable = (tokensData) => {
     setEditingToken,
     setShowEdit,
     refresh,
+    setCapabilityToken,
     groupRatios,
     t,
   } = tokensData;
@@ -71,6 +72,7 @@ const TokensTable = (tokensData) => {
       setEditingToken,
       setShowEdit,
       refresh,
+      setCapabilityToken,
       groupRatios,
       tokenPoolUsageById,
       poolUsageLoading,
@@ -89,6 +91,7 @@ const TokensTable = (tokensData) => {
     setEditingToken,
     setShowEdit,
     refresh,
+    setCapabilityToken,
     groupRatios,
     tokenPoolUsageById,
     poolUsageLoading,

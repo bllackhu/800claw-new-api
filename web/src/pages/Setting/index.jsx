@@ -49,6 +49,7 @@ import DrawingSetting from '../../components/settings/DrawingSetting';
 import PaymentSetting from '../../components/settings/PaymentSetting';
 import ModelDeploymentSetting from '../../components/settings/ModelDeploymentSetting';
 import PerformanceSetting from '../../components/settings/PerformanceSetting';
+import CapabilitySetting from '../../components/settings/CapabilitySetting';
 
 const Setting = () => {
   const { t } = useTranslation();
@@ -167,6 +168,16 @@ const Setting = () => {
       ),
       content: <SystemSetting />,
       itemKey: 'system',
+    });
+    panes.push({
+      tab: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <Shapes size={18} />
+          {t('能力设置')}
+        </span>
+      ),
+      content: <CapabilitySetting />,
+      itemKey: 'capability',
     });
     panes.push({
       tab: (

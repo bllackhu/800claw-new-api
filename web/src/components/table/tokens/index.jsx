@@ -38,6 +38,7 @@ import TokensActions from './TokensActions';
 import TokensFilters from './TokensFilters';
 import TokensDescription from './TokensDescription';
 import EditTokenModal from './modals/EditTokenModal';
+import TokenCapabilitiesModal from './modals/TokenCapabilitiesModal';
 import CCSwitchModal from './modals/CCSwitchModal';
 import { useTokensData } from '../../../hooks/tokens/useTokensData';
 import { useIsMobile } from '../../../hooks/common/useIsMobile';
@@ -353,6 +354,10 @@ function TokensPage() {
     closeEdit,
     refresh,
 
+    // Capability state
+    capabilityToken,
+    setCapabilityToken,
+
     // Actions state
     selectedKeys,
     setEditingToken,
@@ -386,6 +391,12 @@ function TokensPage() {
         poolUsageLoading={tokensData.poolUsageLoading}
         poolUsageError={tokensData.poolUsageError}
         refreshTokenPoolUsage={tokensData.refreshTokenPoolUsageForId}
+      />
+
+      <TokenCapabilitiesModal
+        visible={capabilityToken !== null}
+        token={capabilityToken}
+        onCancel={() => setCapabilityToken(null)}
       />
 
       <CCSwitchModal

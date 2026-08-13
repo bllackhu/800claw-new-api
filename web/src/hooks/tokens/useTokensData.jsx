@@ -57,6 +57,8 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
   const [editingToken, setEditingToken] = useState({
     id: undefined,
   });
+  // Capability state
+  const [capabilityToken, setCapabilityToken] = useState(null);
 
   // UI state
   const [compactMode, setCompactMode] = useTableCompactMode('tokens');
@@ -555,6 +557,10 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
     editingToken,
     setEditingToken,
     closeEdit,
+
+    // Capability state
+    capabilityToken,
+    setCapabilityToken,
 
     // UI state
     compactMode,

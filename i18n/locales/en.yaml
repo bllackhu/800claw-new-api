@@ -267,6 +267,15 @@ distributor.no_available_channel: "No available channel for model {{.Model}} und
 distributor.invalid_midjourney_request: "Invalid Midjourney request: {{.Error}}"
 distributor.invalid_request_parse_model: "Invalid request, unable to parse model"
 
+# Capability messages
+capability.not_granted: "This capability is not enabled for this token"
+capability.exhausted: "The capability call quota has been exhausted"
+capability.insufficient_quota: "Insufficient wallet quota to use this capability"
+capability.load_failed: "Failed to load capability authorization"
+capability.invalid_name: "Invalid capability name"
+capability.invalid_mode: "Invalid capability mode, must be count or wallet"
+capability.invalid_granted: "Invalid granted count, must be a non-negative integer"
+
 # Custom OAuth provider messages
 custom_oauth.not_found: "Custom OAuth provider not found"
 custom_oauth.slug_empty: "Slug cannot be empty"

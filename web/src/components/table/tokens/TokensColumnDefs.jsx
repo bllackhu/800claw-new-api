@@ -391,6 +391,7 @@ const renderOperations = (
   manageToken,
   refresh,
   t,
+  setCapabilityToken,
 ) => {
   let chatsArray = [];
   try {
@@ -478,6 +479,16 @@ const renderOperations = (
       </Button>
 
       <Button
+        type='tertiary'
+        size='small'
+        onClick={() => {
+          setCapabilityToken(record);
+        }}
+      >
+        {t('能力')}
+      </Button>
+
+      <Button
         type='danger'
         size='small'
         onClick={() => {
@@ -513,6 +524,7 @@ export const getTokensColumns = ({
   setShowEdit,
   refresh,
   groupRatios = {},
+  setCapabilityToken,
   tokenPoolUsageById = {},
   poolUsageLoading = false,
   poolUsageError = '',
@@ -608,6 +620,7 @@ export const getTokensColumns = ({
           manageToken,
           refresh,
           t,
+          setCapabilityToken,
         ),
     },
   ];
