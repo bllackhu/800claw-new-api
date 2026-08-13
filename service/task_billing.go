@@ -131,6 +131,7 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 			}
 		}
 	}
+	other["cost_rate"] = ratio_setting.GetModelCostRate(taskModelName(task))
 	props := task.Properties
 	if props.UpstreamModelName != "" && props.UpstreamModelName != props.OriginModelName {
 		other["is_model_mapped"] = true

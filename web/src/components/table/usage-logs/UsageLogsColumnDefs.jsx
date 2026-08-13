@@ -423,6 +423,14 @@ function renderCompactDetailSummary(summarySegments) {
   );
 }
 
+function buildCostRateSegment(other, t) {
+  const rate = Number(other?.cost_rate);
+  if (!Number.isFinite(rate) || rate <= 0) {
+    return null;
+  }
+  return { text: `${t('成本倍率')} ${rate}x`, tone: 'primary' };
+}
+
 function getUsageLogDetailSummary(record, text, billingDisplayMode, t) {
   const other = getLogOther(record.other);
 
@@ -460,48 +468,50 @@ function getUsageLogDetailSummary(record, text, billingDisplayMode, t) {
     };
   }
 
+  const baseSegments = other?.claude
+    ? renderModelPriceSimple(
+        other.model_ratio,
+        other.model_price,
+        other.group_ratio,
+        other?.user_group_ratio,
+        other.cache_tokens || 0,
+        other.cache_ratio || 1.0,
+        other.cache_creation_tokens || 0,
+        other.cache_creation_ratio || 1.0,
+        other.cache_creation_tokens_5m || 0,
+        other.cache_creation_ratio_5m || other.cache_creation_ratio || 1.0,
+        other.cache_creation_tokens_1h || 0,
+        other.cache_creation_ratio_1h || other.cache_creation_ratio || 1.0,
+        false,
+        1.0,
+        other?.is_system_prompt_overwritten,
+        'claude',
+        billingDisplayMode,
+        'segments',
+      )
+    : renderModelPriceSimple(
+        other.model_ratio,
+        other.model_price,
+        other.group_ratio,
+        other?.user_group_ratio,
+        other.cache_tokens || 0,
+        other.cache_ratio || 1.0,
+        0,
+        1.0,
+        0,
+        1.0,
+        0,
+        1.0,
+        false,
+        1.0,
+        other?.is_system_prompt_overwritten,
+        'openai',
+        billingDisplayMode,
+        'segments',
+      );
+
   return {
-    segments: other?.claude
-      ? renderModelPriceSimple(
-          other.model_ratio,
-          other.model_price,
-          other.group_ratio,
-          other?.user_group_ratio,
-          other.cache_tokens || 0,
-          other.cache_ratio || 1.0,
-          other.cache_creation_tokens || 0,
-          other.cache_creation_ratio || 1.0,
-          other.cache_creation_tokens_5m || 0,
-          other.cache_creation_ratio_5m || other.cache_creation_ratio || 1.0,
-          other.cache_creation_tokens_1h || 0,
-          other.cache_creation_ratio_1h || other.cache_creation_ratio || 1.0,
-          false,
-          1.0,
-          other?.is_system_prompt_overwritten,
-          'claude',
-          billingDisplayMode,
-          'segments',
-        )
-      : renderModelPriceSimple(
-          other.model_ratio,
-          other.model_price,
-          other.group_ratio,
-          other?.user_group_ratio,
-          other.cache_tokens || 0,
-          other.cache_ratio || 1.0,
-          0,
-          1.0,
-          0,
-          1.0,
-          0,
-          1.0,
-          false,
-          1.0,
-          other?.is_system_prompt_overwritten,
-          'openai',
-          billingDisplayMode,
-          'segments',
-        ),
+    segments: [buildCostRateSegment(other, t), ...baseSegments].filter(Boolean),
   };
 }
 
