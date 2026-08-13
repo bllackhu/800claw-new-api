@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/wechatpay"
@@ -94,6 +96,10 @@ func newPoolSelectTestRequest(t *testing.T, tokenId int, requireSub bool) (*http
 }
 
 func TestMain(m *testing.M) {
+	if err := i18n.Init(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to init i18n: %v\n", err)
+		os.Exit(1)
+	}
 	os.Exit(m.Run())
 }
 

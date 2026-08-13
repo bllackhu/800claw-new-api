@@ -174,12 +174,23 @@ func enforceSlidingWindow(c *gin.Context, poolId int, validPolicies []*model.Poo
 	}
 }
 
+func resolvePoolQuotaModelName(c *gin.Context) string {
+	if name := common.GetContextKeyString(c, constant.ContextKeyOriginalModel); name != "" {
+		return name
+	}
+	req, err := getModelFromRequest(c)
+	if err != nil || req == nil {
+		return ""
+	}
+	return req.Model
+}
+
 func enforceFixedWindow(c *gin.Context, policies []*model.PoolQuotaPolicy, scopeKey string) {
 	ctx := context.Background()
 	nowUnix := time.Now().Unix()
 
 	// Resolve the per-request cost rate from the original model.
-	modelName := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
+	modelName := resolvePoolQuotaModelName(c)
 	costRate := ratio_setting.GetModelCostRate(modelName)
 	if costRate <= 0 || math.IsNaN(costRate) || math.IsInf(costRate, 0) {
 		costRate = 1.0

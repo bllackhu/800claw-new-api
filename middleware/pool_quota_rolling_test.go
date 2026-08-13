@@ -2,7 +2,9 @@ package middleware
 
 import (
 	"errors"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -237,5 +239,39 @@ func TestFilterValidPoolQuotaPolicies(t *testing.T) {
 	assert.Equal(t, 18000, valid[0].WindowSeconds)
 	assert.Equal(t, 604800, valid[1].WindowSeconds)
 	assert.Equal(t, 2592000, valid[2].WindowSeconds)
+}
+
+func buildPoolQuotaModelNameCtx(body string) *gin.Context {
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	ctx.Request = req
+	return ctx
+}
+
+func TestResolvePoolQuotaModelName_FromContext(t *testing.T) {
+	t.Parallel()
+	ctx := buildPoolQuotaTestCtx(1, 9, "token:9")
+	common.SetContextKey(ctx, constant.ContextKeyOriginalModel, "deepseek-v4-pro")
+	assert.Equal(t, "deepseek-v4-pro", resolvePoolQuotaModelName(ctx))
+}
+
+func TestResolvePoolQuotaModelName_FromBody(t *testing.T) {
+	t.Parallel()
+	ctx := buildPoolQuotaModelNameCtx(`{"model":"deepseek-v4-pro","messages":[]}`)
+	assert.Equal(t, "deepseek-v4-pro", resolvePoolQuotaModelName(ctx))
+}
+
+func TestResolvePoolQuotaModelName_EmptyBody(t *testing.T) {
+	t.Parallel()
+	ctx := buildPoolQuotaModelNameCtx("")
+	assert.Equal(t, "", resolvePoolQuotaModelName(ctx))
+}
+
+func TestResolvePoolQuotaModelName_NoModelField(t *testing.T) {
+	t.Parallel()
+	ctx := buildPoolQuotaModelNameCtx(`{"messages":[]}`)
+	assert.Equal(t, "", resolvePoolQuotaModelName(ctx))
 }
 
