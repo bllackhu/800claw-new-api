@@ -25,20 +25,42 @@ type tokenPoolSubscriptionAdminItem struct {
 }
 
 type putTokenPoolSubscriptionRequest struct {
-	TokenId     int    `json:"token_id"`
-	PoolId      int    `json:"pool_id"`
-	PeriodEnd   int64  `json:"period_end"`
-	PeriodStart *int64 `json:"period_start"`
+	TokenId     int     `json:"token_id"`
+	PoolId      int     `json:"pool_id"`
+	PeriodEnd   int64   `json:"period_end"`
+	PeriodStart *int64  `json:"period_start"`
+	Remark      *string `json:"remark"`
+}
+
+type putTokenPoolSubscriptionArchiveRequest struct {
+	TokenId  int  `json:"token_id"`
+	PoolId   int  `json:"pool_id"`
+	Archived bool `json:"archived"`
+}
+
+func toTokenPoolSubscriptionAdminItem(sub *model.TokenPoolSubscription) tokenPoolSubscriptionAdminItem {
+	now := common.GetTimestamp()
+	items := []tokenPoolSubscriptionAdminItem{{
+		TokenPoolSubscription: *sub,
+		Active:                sub.PeriodEnd >= now,
+	}}
+	enrichTokenPoolSubscriptionItems(items)
+	return items[0]
 }
 
 // GetTokenPoolSubscriptions lists token pool subscription rows (admin).
-// GET /api/pool/token_subscriptions?token_id=&pool_id=&token_name=&pool_name=
+// GET /api/pool/token_subscriptions?token_id=&pool_id=&token_name=&pool_name=&visibility=all|active|disabled|archived
 func GetTokenPoolSubscriptions(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	tokenId, _ := strconv.Atoi(c.Query("token_id"))
 	poolId, _ := strconv.Atoi(c.Query("pool_id"))
 	tokenName := strings.TrimSpace(c.Query("token_name"))
 	poolName := strings.TrimSpace(c.Query("pool_name"))
+	visibility, err := model.NormalizeTokenPoolSubscriptionVisibility(c.Query("visibility"))
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
 
 	items, total, err := model.ListTokenPoolSubscriptions(
 		pageInfo.GetStartIdx(),
@@ -47,6 +69,7 @@ func GetTokenPoolSubscriptions(c *gin.Context) {
 		poolId,
 		tokenName,
 		poolName,
+		visibility,
 	)
 	if err != nil {
 		common.ApiError(c, err)
@@ -97,7 +120,7 @@ func PutTokenPoolSubscription(c *gin.Context) {
 		periodStart = *req.PeriodStart
 	}
 
-	sub, err := model.AdminUpsertTokenPoolSubscription(req.TokenId, req.PoolId, periodStart, req.PeriodEnd)
+	sub, err := model.AdminUpsertTokenPoolSubscription(req.TokenId, req.PoolId, periodStart, req.PeriodEnd, req.Remark)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -106,13 +129,36 @@ func PutTokenPoolSubscription(c *gin.Context) {
 	logger.LogInfo(c, "admin token pool subscription upsert token_id="+strconv.Itoa(req.TokenId)+
 		" pool_id="+strconv.Itoa(req.PoolId)+" period_end="+strconv.FormatInt(req.PeriodEnd, 10))
 
-	now := common.GetTimestamp()
-	item := tokenPoolSubscriptionAdminItem{
-		TokenPoolSubscription: *sub,
-		Active:                sub.PeriodEnd >= now,
+	common.ApiSuccess(c, toTokenPoolSubscriptionAdminItem(sub))
+}
+
+// PutTokenPoolSubscriptionArchive sets archived for (token_id, pool_id) (admin).
+// PUT /api/pool/token_subscription/archive
+func PutTokenPoolSubscriptionArchive(c *gin.Context) {
+	var req putTokenPoolSubscriptionArchiveRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
 	}
-	enrichTokenPoolSubscriptionItems([]tokenPoolSubscriptionAdminItem{item})
-	common.ApiSuccess(c, item)
+	if req.TokenId <= 0 || req.PoolId <= 0 {
+		common.ApiErrorMsg(c, "invalid token_id or pool_id")
+		return
+	}
+
+	sub, err := model.SetTokenPoolSubscriptionArchived(req.TokenId, req.PoolId, req.Archived)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ApiErrorMsg(c, "subscription not found")
+			return
+		}
+		common.ApiError(c, err)
+		return
+	}
+
+	logger.LogInfo(c, "admin token pool subscription archive token_id="+strconv.Itoa(req.TokenId)+
+		" pool_id="+strconv.Itoa(req.PoolId)+" archived="+strconv.FormatBool(req.Archived))
+
+	common.ApiSuccess(c, toTokenPoolSubscriptionAdminItem(sub))
 }
 
 // AdminReconcileWechatOrder triggers WeChat order status query for a given trade_no (admin only).

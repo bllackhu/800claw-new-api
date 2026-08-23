@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
@@ -58,15 +59,19 @@ func (TokenPoolSubscriptionOrder) TableName() string {
 	return "token_pool_subscription_orders"
 }
 
+const tokenPoolSubscriptionRemarkMaxLen = 255
+
 // TokenPoolSubscription is the active paid window for (token_id, pool_id).
 type TokenPoolSubscription struct {
-	Id          int   `json:"id"`
-	TokenId     int   `json:"token_id" gorm:"uniqueIndex:uk_tp_token_pool,priority:1"`
-	PoolId      int   `json:"pool_id" gorm:"uniqueIndex:uk_tp_token_pool,priority:2"`
-	PeriodStart int64 `json:"period_start" gorm:"bigint;index"`
-	PeriodEnd   int64 `json:"period_end" gorm:"bigint;index"`
-	LastOrderId int   `json:"last_order_id" gorm:"default:0"`
-	UpdatedAt   int64 `json:"updated_at" gorm:"bigint"`
+	Id          int    `json:"id"`
+	TokenId     int    `json:"token_id" gorm:"uniqueIndex:uk_tp_token_pool,priority:1"`
+	PoolId      int    `json:"pool_id" gorm:"uniqueIndex:uk_tp_token_pool,priority:2"`
+	PeriodStart int64  `json:"period_start" gorm:"bigint;index"`
+	PeriodEnd   int64  `json:"period_end" gorm:"bigint;index"`
+	LastOrderId int    `json:"last_order_id" gorm:"default:0"`
+	Remark      string `json:"remark" gorm:"type:varchar(255);default:''"`
+	Archived    bool   `json:"archived" gorm:"default:false;index"`
+	UpdatedAt   int64  `json:"updated_at" gorm:"bigint"`
 }
 
 func (TokenPoolSubscription) TableName() string {
@@ -299,6 +304,18 @@ var poolSubscriptionLocation = func() *time.Location {
 
 const secondsPerDay int64 = 86400
 
+// TokenTrialPeriodSeconds resolves first-request trial duration from pool billing period and token months.
+// Returns 0 when trialPeriodMonths <= 0 (no auto-grant).
+func TokenTrialPeriodSeconds(poolBillingPeriodSeconds int64, trialPeriodMonths int) int64 {
+	if trialPeriodMonths <= 0 {
+		return 0
+	}
+	if poolBillingPeriodSeconds <= 0 {
+		poolBillingPeriodSeconds = 30 * secondsPerDay
+	}
+	return poolBillingPeriodSeconds * int64(trialPeriodMonths)
+}
+
 // periodEndAtBillingEOD returns unix seconds for 23:59:59 on the expiry calendar day
 // (anchor local date + billing period in whole days) in Asia/Shanghai.
 func periodEndAtBillingEOD(anchorUnix, periodSeconds int64) int64 {
@@ -436,8 +453,37 @@ func ListTokenPoolSubscriptionOrders(offset, limit int) ([]*TokenPoolSubscriptio
 	return items, total, err
 }
 
-// ListTokenPoolSubscriptions returns subscription rows with optional token_id / pool_id / name filters.
-func ListTokenPoolSubscriptions(offset, limit, tokenIdFilter, poolIdFilter int, tokenNameFilter, poolNameFilter string) ([]*TokenPoolSubscription, int64, error) {
+const (
+	TokenPoolSubscriptionVisibilityAll      = "all"
+	TokenPoolSubscriptionVisibilityActive   = "active"
+	TokenPoolSubscriptionVisibilityDisabled = "disabled"
+	TokenPoolSubscriptionVisibilityArchived = "archived"
+)
+
+func NormalizeTokenPoolSubscriptionVisibility(raw string) (string, error) {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	if s == "" {
+		return TokenPoolSubscriptionVisibilityAll, nil
+	}
+	switch s {
+	case TokenPoolSubscriptionVisibilityAll,
+		TokenPoolSubscriptionVisibilityActive,
+		TokenPoolSubscriptionVisibilityDisabled,
+		TokenPoolSubscriptionVisibilityArchived:
+		return s, nil
+	default:
+		return "", errors.New("invalid visibility")
+	}
+}
+
+// ListTokenPoolSubscriptions returns subscription rows with optional token_id / pool_id / name / visibility filters.
+// visibility "" or "all" lists non-archived rows; "active"/"disabled" further filter by period_end vs now;
+// "archived" lists archived rows only.
+func ListTokenPoolSubscriptions(offset, limit, tokenIdFilter, poolIdFilter int, tokenNameFilter, poolNameFilter, visibility string) ([]*TokenPoolSubscription, int64, error) {
+	visibility, err := NormalizeTokenPoolSubscriptionVisibility(visibility)
+	if err != nil {
+		return nil, 0, err
+	}
 	q := DB.Model(&TokenPoolSubscription{})
 	if tokenIdFilter > 0 {
 		q = q.Where("token_id = ?", tokenIdFilter)
@@ -471,6 +517,17 @@ func ListTokenPoolSubscriptions(offset, limit, tokenIdFilter, poolIdFilter int, 
 			q = q.Where("pool_id IN ?", poolIds)
 		}
 	}
+	now := common.GetTimestamp()
+	switch visibility {
+	case TokenPoolSubscriptionVisibilityArchived:
+		q = q.Where("archived = ?", true)
+	case TokenPoolSubscriptionVisibilityActive:
+		q = q.Where("archived = ?", false).Where("period_end >= ?", now)
+	case TokenPoolSubscriptionVisibilityDisabled:
+		q = q.Where("archived = ?", false).Where("period_end < ?", now)
+	default:
+		q = q.Where("archived = ?", false)
+	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -479,18 +536,54 @@ func ListTokenPoolSubscriptions(offset, limit, tokenIdFilter, poolIdFilter int, 
 		q = q.Limit(limit).Offset(offset)
 	}
 	var items []*TokenPoolSubscription
-	err := q.Order("id DESC").Find(&items).Error
+	err = q.Order("id DESC").Find(&items).Error
 	return items, total, err
+}
+
+// SetTokenPoolSubscriptionArchived sets only the archived flag for (token_id, pool_id).
+func SetTokenPoolSubscriptionArchived(tokenId, poolId int, archived bool) (*TokenPoolSubscription, error) {
+	if tokenId <= 0 || poolId <= 0 {
+		return nil, errors.New("invalid token_id or pool_id")
+	}
+	var sub TokenPoolSubscription
+	err := DB.Where("token_id = ? AND pool_id = ?", tokenId, poolId).First(&sub).Error
+	if err != nil {
+		return nil, err
+	}
+	if err := DB.Model(&sub).Update("archived", archived).Error; err != nil {
+		return nil, err
+	}
+	if err := DB.Where("token_id = ? AND pool_id = ?", tokenId, poolId).First(&sub).Error; err != nil {
+		return nil, err
+	}
+	return &sub, nil
+}
+
+func normalizeTokenPoolSubscriptionRemark(raw string) (string, error) {
+	remark := strings.TrimSpace(raw)
+	if utf8.RuneCountInString(remark) > tokenPoolSubscriptionRemarkMaxLen {
+		return "", fmt.Errorf("remark exceeds %d characters", tokenPoolSubscriptionRemarkMaxLen)
+	}
+	return remark, nil
 }
 
 // AdminUpsertTokenPoolSubscription sets absolute period_start / period_end for (token_id, pool_id).
 // Manual grants use last_order_id = 0 on create; existing last_order_id is preserved on update.
-func AdminUpsertTokenPoolSubscription(tokenId, poolId int, periodStart, periodEnd int64) (*TokenPoolSubscription, error) {
+// remark nil leaves the stored memo unchanged on update and stores empty on create.
+func AdminUpsertTokenPoolSubscription(tokenId, poolId int, periodStart, periodEnd int64, remark *string) (*TokenPoolSubscription, error) {
 	if tokenId <= 0 || poolId <= 0 {
 		return nil, errors.New("invalid token_id or pool_id")
 	}
 	if periodEnd <= 0 {
 		return nil, errors.New("invalid period_end")
+	}
+	normalizedRemark := ""
+	if remark != nil {
+		var err error
+		normalizedRemark, err = normalizeTokenPoolSubscriptionRemark(*remark)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if _, err := GetTokenById(tokenId); err != nil {
 		return nil, fmt.Errorf("token not found: %w", err)
@@ -515,6 +608,7 @@ func AdminUpsertTokenPoolSubscription(tokenId, poolId int, periodStart, periodEn
 				PeriodStart: start,
 				PeriodEnd:   periodEnd,
 				LastOrderId: 0,
+				Remark:      normalizedRemark,
 			}
 			if err := tx.Create(&sub).Error; err != nil {
 				return err
@@ -530,6 +624,9 @@ func AdminUpsertTokenPoolSubscription(tokenId, poolId int, periodStart, periodEn
 		}
 		if periodStart > 0 {
 			updates["period_start"] = periodStart
+		}
+		if remark != nil {
+			updates["remark"] = normalizedRemark
 		}
 		if err := tx.Model(&sub).Updates(updates).Error; err != nil {
 			return err

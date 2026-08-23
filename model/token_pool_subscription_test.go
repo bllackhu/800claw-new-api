@@ -222,7 +222,7 @@ func TestAdminUpsertTokenPoolSubscription_CreateAndUpdate(t *testing.T) {
 	require.NoError(t, DB.Create(&Pool{Id: 20, Name: "pool-20", Status: PoolStatusEnabled}).Error)
 
 	future := now + 30*24*3600
-	sub, err := AdminUpsertTokenPoolSubscription(5, 20, 0, future)
+	sub, err := AdminUpsertTokenPoolSubscription(5, 20, 0, future, nil)
 	require.NoError(t, err)
 	require.NotNil(t, sub)
 	require.Equal(t, 5, sub.TokenId)
@@ -235,7 +235,7 @@ func TestAdminUpsertTokenPoolSubscription_CreateAndUpdate(t *testing.T) {
 	require.True(t, ok)
 
 	past := now - 3600
-	sub2, err := AdminUpsertTokenPoolSubscription(5, 20, 0, past)
+	sub2, err := AdminUpsertTokenPoolSubscription(5, 20, 0, past, nil)
 	require.NoError(t, err)
 	require.Equal(t, past, sub2.PeriodEnd)
 
@@ -255,13 +255,13 @@ func TestListTokenPoolSubscriptions_Filters(t *testing.T) {
 		TokenId: 2, PoolId: 10, PeriodStart: now, PeriodEnd: now + 200,
 	}).Error)
 
-	items, total, err := ListTokenPoolSubscriptions(0, 10, 1, 0, "", "")
+	items, total, err := ListTokenPoolSubscriptions(0, 10, 1, 0, "", "", "")
 	require.NoError(t, err)
 	require.Equal(t, int64(1), total)
 	require.Len(t, items, 1)
 	require.Equal(t, 1, items[0].TokenId)
 
-	items, total, err = ListTokenPoolSubscriptions(0, 10, 0, 10, "", "")
+	items, total, err = ListTokenPoolSubscriptions(0, 10, 0, 10, "", "", "")
 	require.NoError(t, err)
 	require.Equal(t, int64(2), total)
 	require.Len(t, items, 2)
@@ -290,27 +290,134 @@ func TestListTokenPoolSubscriptions_NameFilters(t *testing.T) {
 		TokenId: 12, PoolId: 102, PeriodStart: now, PeriodEnd: now + 200,
 	}).Error)
 
-	items, total, err := ListTokenPoolSubscriptions(0, 10, 0, 0, "alpha", "")
+	items, total, err := ListTokenPoolSubscriptions(0, 10, 0, 0, "alpha", "", "")
 	require.NoError(t, err)
 	require.Equal(t, int64(1), total)
 	require.Len(t, items, 1)
 	require.Equal(t, 11, items[0].TokenId)
 
-	items, total, err = ListTokenPoolSubscriptions(0, 10, 0, 0, "", "Lite")
+	items, total, err = ListTokenPoolSubscriptions(0, 10, 0, 0, "", "Lite", "")
 	require.NoError(t, err)
 	require.Equal(t, int64(1), total)
 	require.Len(t, items, 1)
 	require.Equal(t, 101, items[0].PoolId)
 
-	items, total, err = ListTokenPoolSubscriptions(0, 10, 11, 0, "beta", "")
+	items, total, err = ListTokenPoolSubscriptions(0, 10, 11, 0, "beta", "", "")
 	require.NoError(t, err)
 	require.Equal(t, int64(0), total)
 	require.Len(t, items, 0)
 
-	items, total, err = ListTokenPoolSubscriptions(0, 10, 0, 0, "missing-token", "")
+	items, total, err = ListTokenPoolSubscriptions(0, 10, 0, 0, "missing-token", "", "")
 	require.NoError(t, err)
 	require.Equal(t, int64(0), total)
 	require.Len(t, items, 0)
+}
+
+func TestListTokenPoolSubscriptions_VisibilityFilter(t *testing.T) {
+	setupTokenPoolSubscriptionAdminTestDB(t)
+
+	now := common.GetTimestamp()
+	require.NoError(t, DB.Create(&TokenPoolSubscription{
+		TokenId: 1, PoolId: 10, PeriodStart: now - 200, PeriodEnd: now + 3600,
+	}).Error)
+	require.NoError(t, DB.Create(&TokenPoolSubscription{
+		TokenId: 2, PoolId: 10, PeriodStart: now - 400, PeriodEnd: now - 10,
+	}).Error)
+	require.NoError(t, DB.Create(&TokenPoolSubscription{
+		TokenId: 3, PoolId: 10, PeriodStart: now - 400, PeriodEnd: now - 10, Archived: true,
+	}).Error)
+
+	items, total, err := ListTokenPoolSubscriptions(0, 10, 0, 10, "", "", TokenPoolSubscriptionVisibilityActive)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Len(t, items, 1)
+	require.Equal(t, 1, items[0].TokenId)
+
+	items, total, err = ListTokenPoolSubscriptions(0, 10, 0, 10, "", "", TokenPoolSubscriptionVisibilityDisabled)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Len(t, items, 1)
+	require.Equal(t, 2, items[0].TokenId)
+
+	items, total, err = ListTokenPoolSubscriptions(0, 10, 0, 10, "", "", "")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), total)
+	require.Len(t, items, 2)
+
+	items, total, err = ListTokenPoolSubscriptions(0, 10, 0, 10, "", "", TokenPoolSubscriptionVisibilityArchived)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Len(t, items, 1)
+	require.Equal(t, 3, items[0].TokenId)
+	require.True(t, items[0].Archived)
+}
+
+func TestSetTokenPoolSubscriptionArchived(t *testing.T) {
+	setupTokenPoolSubscriptionAdminTestDB(t)
+
+	now := common.GetTimestamp()
+	require.NoError(t, DB.Create(&TokenPoolSubscription{
+		TokenId: 4, PoolId: 10, PeriodStart: now, PeriodEnd: now + 3600,
+	}).Error)
+
+	sub, err := SetTokenPoolSubscriptionArchived(4, 10, true)
+	require.NoError(t, err)
+	require.True(t, sub.Archived)
+	require.Equal(t, now+3600, sub.PeriodEnd)
+
+	ok, err := TokenHasActivePoolSubscription(4, 10)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	sub, err = SetTokenPoolSubscriptionArchived(4, 10, false)
+	require.NoError(t, err)
+	require.False(t, sub.Archived)
+}
+
+func TestGrantFirstRequestTrial_NoopWhenArchivedExpiredRowExists(t *testing.T) {
+	setupTokenPoolSubscriptionAdminTestDB(t)
+
+	now := common.GetTimestamp()
+	require.NoError(t, DB.Create(&TokenPoolSubscription{
+		TokenId:     105,
+		PoolId:      202,
+		PeriodStart: now - 40*86400,
+		PeriodEnd:   now - 3600,
+		Archived:    true,
+	}).Error)
+
+	granted, err := GrantFirstRequestTrialIfEligible(105, 202, 30*86400)
+	require.NoError(t, err)
+	require.False(t, granted)
+}
+
+func TestAdminUpsertTokenPoolSubscription_Remark(t *testing.T) {
+	setupTokenPoolSubscriptionAdminTestDB(t)
+
+	now := common.GetTimestamp()
+	require.NoError(t, DB.Create(&Token{Id: 8, UserId: 1, Name: "t8", Key: "sk-test-8"}).Error)
+	require.NoError(t, DB.Create(&Pool{Id: 40, Name: "pool-40", Status: PoolStatusEnabled}).Error)
+
+	future := now + 30*24*3600
+	memo := "  comp for ops  "
+	sub, err := AdminUpsertTokenPoolSubscription(8, 40, 0, future, &memo)
+	require.NoError(t, err)
+	require.Equal(t, "comp for ops", sub.Remark)
+
+	later := future + 3600
+	sub2, err := AdminUpsertTokenPoolSubscription(8, 40, 0, later, nil)
+	require.NoError(t, err)
+	require.Equal(t, later, sub2.PeriodEnd)
+	require.Equal(t, "comp for ops", sub2.Remark)
+
+	cleared := "   "
+	sub3, err := AdminUpsertTokenPoolSubscription(8, 40, 0, later, &cleared)
+	require.NoError(t, err)
+	require.Equal(t, "", sub3.Remark)
+
+	tooLong := strings.Repeat("x", 256)
+	_, err = AdminUpsertTokenPoolSubscription(8, 40, 0, later, &tooLong)
+	require.Error(t, err)
 }
 
 func TestGrantFirstRequestTrial_CreatesRowForNewToken(t *testing.T) {
@@ -485,3 +592,10 @@ func TestCompleteTokenPoolSubscriptionFromNotify_ExpiresSiblingPending(t *testin
 	require.True(t, ok)
 }
 
+func TestTokenTrialPeriodSeconds(t *testing.T) {
+	poolPeriod := int64(30 * 86400)
+	require.Equal(t, int64(0), TokenTrialPeriodSeconds(poolPeriod, 0))
+	require.Equal(t, poolPeriod, TokenTrialPeriodSeconds(poolPeriod, 1))
+	require.Equal(t, poolPeriod*3, TokenTrialPeriodSeconds(poolPeriod, 3))
+	require.Equal(t, int64(30*86400), TokenTrialPeriodSeconds(0, 1))
+}

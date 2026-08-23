@@ -39,6 +39,7 @@ import {
   showError,
   getPoolUsageReasonText,
   formatResetTime,
+  isAdmin,
 } from '../../../helpers';
 import {
   IconTreeTriangleDown,
@@ -550,6 +551,16 @@ export const getTokensColumns = ({
         </Tag>
       ),
     },
+    ...(isAdmin()
+      ? [
+          {
+            title: t('Pool trial months'),
+            dataIndex: 'trial_period_months',
+            key: 'trial_period_months',
+            width: 96,
+          },
+        ]
+      : []),
     {
       title: t('名称'),
       dataIndex: 'name',

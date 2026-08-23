@@ -174,6 +174,7 @@ const EditTokenModal = (props) => {
     group: '',
     cross_group_retry: false,
     require_pool_subscription: false,
+    trial_period_months: 1,
     tokenCount: 1,
   });
 
@@ -526,6 +527,20 @@ const EditTokenModal = (props) => {
                       extraText='When enabled, if this token resolves to a pool with a monthly price, relay requests require an active native WeChat pool subscription for that token and pool.'
                     />
                   </Col>
+                  {adminUser && (
+                    <Col span={24}>
+                      <Form.InputNumber
+                        field='trial_period_months'
+                        label={t('Pool trial months')}
+                        min={0}
+                        max={24}
+                        style={{ width: '100%' }}
+                        extraText={t(
+                          'Pool trial months on first request; 0 means no trial.',
+                        )}
+                      />
+                    </Col>
+                  )}
 
                   {!isEdit && (
                     <Col span={24}>

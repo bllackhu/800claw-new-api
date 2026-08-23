@@ -48,6 +48,8 @@ const (
 	ContextKeyPoolScopeKey ContextKey = "pool_scope_key"
 	// ContextKeyTokenRequirePoolSubscription is set from token.RequirePoolSubscription during TokenAuth (opt-in pool subscription gate).
 	ContextKeyTokenRequirePoolSubscription ContextKey = "token_require_pool_subscription"
+	// ContextKeyTokenTrialPeriodMonths is set from token.TrialPeriodMonths during TokenAuth (first-request trial length).
+	ContextKeyTokenTrialPeriodMonths ContextKey = "token_trial_period_months"
 
 	/* user related keys */
 	ContextKeyUserId      ContextKey = "id"

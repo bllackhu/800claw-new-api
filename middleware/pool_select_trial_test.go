@@ -81,7 +81,7 @@ func seedPricedPoolWithTokenBinding(t *testing.T, tokenId int) *model.Pool {
 	return pool
 }
 
-func newPoolSelectTestRequest(t *testing.T, tokenId int, requireSub bool) (*httptest.ResponseRecorder, *gin.Context) {
+func newPoolSelectTestRequest(t *testing.T, tokenId int, requireSub bool, trialMonthsArg ...int) (*httptest.ResponseRecorder, *gin.Context) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -92,6 +92,11 @@ func newPoolSelectTestRequest(t *testing.T, tokenId int, requireSub bool) (*http
 	common.SetContextKey(c, constant.ContextKeyUserId, 1)
 	common.SetContextKey(c, constant.ContextKeyTokenId, tokenId)
 	common.SetContextKey(c, constant.ContextKeyTokenRequirePoolSubscription, requireSub)
+	trialMonths := 1
+	if len(trialMonthsArg) > 0 {
+		trialMonths = trialMonthsArg[0]
+	}
+	common.SetContextKey(c, constant.ContextKeyTokenTrialPeriodMonths, trialMonths)
 	return rec, c
 }
 
@@ -235,4 +240,53 @@ func TestPoolSelect_LazyReconcilePendingPayment(t *testing.T) {
 	sub, err := model.GetTokenPoolSubscription(tokenId, pool.Id)
 	require.NoError(t, err)
 	require.Greater(t, sub.PeriodEnd, now)
+}
+
+func TestPoolSelect_ZeroTrialMonthsReturns402(t *testing.T) {
+	setupPoolSelectTestDB(t)
+	tokenId := 505
+	pool := seedPricedPoolWithTokenBinding(t, tokenId)
+
+	rec, c := newPoolSelectTestRequest(t, tokenId, true, 0)
+	handler := PoolSelect()
+	handler(c)
+	require.True(t, c.IsAborted(), "trial_period_months=0 must not auto-grant")
+	require.Equal(t, http.StatusPaymentRequired, rec.Code)
+
+	var count int64
+	require.NoError(t, model.DB.Model(&model.TokenPoolSubscription{}).
+		Where("token_id = ? AND pool_id = ?", tokenId, pool.Id).
+		Count(&count).Error)
+	require.Equal(t, int64(0), count)
+}
+
+func TestPoolSelect_ThreeMonthTrialPeriod(t *testing.T) {
+	setupPoolSelectTestDB(t)
+	tokenOneMonth := 506
+	tokenThreeMonth := 507
+	pool := seedPricedPoolWithTokenBinding(t, tokenOneMonth)
+	require.NoError(t, model.DB.Create(&model.PoolBinding{
+		BindingType:  model.PoolBindingTypeToken,
+		BindingValue: strconv.Itoa(tokenThreeMonth),
+		PoolId:       pool.Id,
+		Enabled:      true,
+	}).Error)
+
+	rec1, c1 := newPoolSelectTestRequest(t, tokenOneMonth, true, 1)
+	handler := PoolSelect()
+	handler(c1)
+	require.False(t, c1.IsAborted())
+	rec1Code := rec1.Code
+
+	rec3, c3 := newPoolSelectTestRequest(t, tokenThreeMonth, true, 3)
+	handler(c3)
+	require.False(t, c3.IsAborted())
+	require.NotEqual(t, http.StatusPaymentRequired, rec3.Code)
+
+	sub1, err := model.GetTokenPoolSubscription(tokenOneMonth, pool.Id)
+	require.NoError(t, err)
+	sub3, err := model.GetTokenPoolSubscription(tokenThreeMonth, pool.Id)
+	require.NoError(t, err)
+	require.Greater(t, sub3.PeriodEnd-sub3.PeriodStart, sub1.PeriodEnd-sub1.PeriodStart)
+	_ = rec1Code
 }

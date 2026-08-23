@@ -222,6 +222,15 @@ func AddToken(c *gin.Context) {
 		Group:                   token.Group,
 		CrossGroupRetry:         token.CrossGroupRetry,
 		RequirePoolSubscription: token.RequirePoolSubscription,
+		TrialPeriodMonths:       1,
+	}
+	if model.IsAdmin(c.GetInt("id")) {
+		trialMonths, err := model.ValidateTrialPeriodMonths(token.TrialPeriodMonths)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		cleanToken.TrialPeriodMonths = trialMonths
 	}
 	err = cleanToken.Insert()
 	if err != nil {
@@ -301,6 +310,14 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.Group = token.Group
 		cleanToken.CrossGroupRetry = token.CrossGroupRetry
 		cleanToken.RequirePoolSubscription = token.RequirePoolSubscription
+		if model.IsAdmin(userId) {
+			trialMonths, trialErr := model.ValidateTrialPeriodMonths(token.TrialPeriodMonths)
+			if trialErr != nil {
+				common.ApiError(c, trialErr)
+				return
+			}
+			cleanToken.TrialPeriodMonths = trialMonths
+		}
 	}
 	err = cleanToken.Update()
 	if err != nil {

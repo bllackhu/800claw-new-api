@@ -31,7 +31,21 @@ type Token struct {
 	Group                    string         `json:"group" gorm:"default:''"`
 	CrossGroupRetry          bool           `json:"cross_group_retry"`                              // 跨分组重试，仅auto分组有效
 	RequirePoolSubscription  bool           `json:"require_pool_subscription" gorm:"default:false"` // opt-in: when true, paid pools require active native WeChat pool subscription for this token
+	TrialPeriodMonths        int            `json:"trial_period_months" gorm:"default:1"`           // first-request pool trial length in billing months; 0 = no auto-grant
 	DeletedAt                gorm.DeletedAt `gorm:"index"`
+}
+
+const MaxTrialPeriodMonths = 24
+
+// ValidateTrialPeriodMonths clamps trial length to admin-configured bounds.
+func ValidateTrialPeriodMonths(months int) (int, error) {
+	if months < 0 {
+		return 0, fmt.Errorf("trial_period_months must be >= 0")
+	}
+	if months > MaxTrialPeriodMonths {
+		return 0, fmt.Errorf("trial_period_months must be <= %d", MaxTrialPeriodMonths)
+	}
+	return months, nil
 }
 
 func (token *Token) Clean() {
@@ -330,7 +344,7 @@ func (token *Token) Update() (err error) {
 		}
 	}()
 	err = DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
-		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "require_pool_subscription").Updates(token).Error
+		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "require_pool_subscription", "trial_period_months").Updates(token).Error
 	return err
 }
 

@@ -67,9 +67,16 @@ func PoolSelect() func(c *gin.Context) {
 			if !ok {
 				// First-request free window: if no subscription row exists for this (token, pool),
 				// auto-grant a one-time trial anchored on the current request (period_end at
-				// 23:59:59 Asia/Shanghai on now + pool.BillingPeriodSeconds days). Tokens whose
-				// trial has already been consumed (row exists but expired) still get 402 here.
-				granted, err := model.GrantFirstRequestTrialIfEligible(tokenId, pool.Id, pool.BillingPeriodSeconds)
+				// 23:59:59 Asia/Shanghai on now + token trial months × pool billing period).
+				// trial_period_months = 0 skips auto-grant. Tokens whose trial was already
+				// consumed (row exists but expired) still get 402 here.
+				trialMonths := common.GetContextKeyInt(c, constant.ContextKeyTokenTrialPeriodMonths)
+				trialSeconds := model.TokenTrialPeriodSeconds(pool.BillingPeriodSeconds, trialMonths)
+				if trialSeconds <= 0 {
+					abortWithOpenAiMessage(c, http.StatusPaymentRequired, "active pool subscription required for this token")
+					return
+				}
+				granted, err := model.GrantFirstRequestTrialIfEligible(tokenId, pool.Id, trialSeconds)
 				if err != nil {
 					abortWithOpenAiMessage(c, http.StatusInternalServerError, "failed to verify pool subscription")
 					return

@@ -152,6 +152,8 @@ const PoolsTable = () => {
     setTokenSubFilterTokenName,
     tokenSubFilterPoolName,
     setTokenSubFilterPoolName,
+    tokenSubFilterVisibility,
+    setTokenSubFilterVisibility,
     loadTokenSubscriptions,
     tokenSubColumns,
     tokenSubForm,
@@ -469,6 +471,17 @@ const PoolsTable = () => {
               onEnterPress={() => loadTokenSubscriptions(1)}
               style={{ maxWidth: 160 }}
             />
+            <Select
+              value={tokenSubFilterVisibility}
+              placeholder={t('filter visibility')}
+              onChange={(value) => setTokenSubFilterVisibility(value || 'all')}
+              style={{ width: 160 }}
+            >
+              <Select.Option value='all'>{t('all')}</Select.Option>
+              <Select.Option value='active'>{t('Enabled')}</Select.Option>
+              <Select.Option value='disabled'>{t('Disabled')}</Select.Option>
+              <Select.Option value='archived'>{t('Archived')}</Select.Option>
+            </Select>
             <Button onClick={() => loadTokenSubscriptions(1)}>{t('Apply Filter')}</Button>
             <Button
               onClick={() => {
@@ -476,11 +489,13 @@ const PoolsTable = () => {
                 setTokenSubFilterPoolId('');
                 setTokenSubFilterTokenName('');
                 setTokenSubFilterPoolName('');
+                setTokenSubFilterVisibility('all');
                 loadTokenSubscriptions(1, {
                   tokenId: '',
                   poolId: '',
                   tokenName: '',
                   poolName: '',
+                  visibility: 'all',
                 });
               }}
             >

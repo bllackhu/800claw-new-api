@@ -276,3 +276,54 @@ func TestGetTokenKeyRequiresOwnershipAndReturnsFullKey(t *testing.T) {
 		t.Fatalf("unauthorized key response leaked raw token key: %s", unauthorizedRecorder.Body.String())
 	}
 }
+
+func TestUpdateToken_NonAdminCannotChangeTrialPeriodMonths(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	if err := db.AutoMigrate(&model.User{}); err != nil {
+		t.Fatalf("failed to migrate users: %v", err)
+	}
+	if err := db.Create(&model.User{
+		Id:       1,
+		Username: "common-user",
+		Password: "password123",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+	}).Error; err != nil {
+		t.Fatalf("failed to seed user: %v", err)
+	}
+
+	token := seedToken(t, db, 1, "trial-token", "trial1234trial5678")
+	token.TrialPeriodMonths = 1
+	if err := db.Model(token).Update("trial_period_months", 1).Error; err != nil {
+		t.Fatalf("failed to set trial months: %v", err)
+	}
+
+	body := map[string]any{
+		"id":                      token.Id,
+		"name":                    token.Name,
+		"expired_time":            -1,
+		"remain_quota":            100,
+		"unlimited_quota":         true,
+		"model_limits_enabled":    false,
+		"model_limits":            "",
+		"group":                   "default",
+		"cross_group_retry":       false,
+		"require_pool_subscription": false,
+		"trial_period_months":     3,
+	}
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/", body, 1)
+	UpdateToken(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected success response, got message: %s", response.Message)
+	}
+
+	var updated model.Token
+	if err := db.First(&updated, token.Id).Error; err != nil {
+		t.Fatalf("failed to reload token: %v", err)
+	}
+	if updated.TrialPeriodMonths != 1 {
+		t.Fatalf("expected trial_period_months to remain 1, got %d", updated.TrialPeriodMonths)
+	}
+}

@@ -104,11 +104,13 @@ export const usePoolsData = () => {
   const [tokenSubFilterPoolId, setTokenSubFilterPoolId] = useState('');
   const [tokenSubFilterTokenName, setTokenSubFilterTokenName] = useState('');
   const [tokenSubFilterPoolName, setTokenSubFilterPoolName] = useState('');
+  const [tokenSubFilterVisibility, setTokenSubFilterVisibility] = useState('all');
   const [tokenSubForm, setTokenSubForm] = useState({
     id: 0,
     token_id: '',
     pool_id: '',
     period_end_date: null,
+    remark: '',
   });
   const [showTokenSubForm, setShowTokenSubForm] = useState(false);
 
@@ -389,6 +391,7 @@ export const usePoolsData = () => {
         const poolId = filters.poolId ?? tokenSubFilterPoolId;
         const tokenName = filters.tokenName ?? tokenSubFilterTokenName;
         const poolName = filters.poolName ?? tokenSubFilterPoolName;
+        const visibility = filters.visibility ?? tokenSubFilterVisibility;
         const params = new URLSearchParams({
           p: String(targetPage),
           page_size: String(PAGE_SIZE),
@@ -405,6 +408,7 @@ export const usePoolsData = () => {
         if (String(poolName).trim()) {
           params.set('pool_name', String(poolName).trim());
         }
+        params.set('visibility', String(visibility || 'all').trim() || 'all');
         const res = await API.get(`/api/pool/token_subscriptions?${params.toString()}`);
         if (!res?.data?.success) {
           showError(res?.data?.message || t('Failed to load token subscriptions'));
@@ -420,7 +424,7 @@ export const usePoolsData = () => {
         setTokenSubLoading(false);
       }
     },
-    [tokenSubFilterPoolId, tokenSubFilterPoolName, tokenSubFilterTokenId, tokenSubFilterTokenName, t],
+    [tokenSubFilterPoolId, tokenSubFilterPoolName, tokenSubFilterTokenId, tokenSubFilterTokenName, tokenSubFilterVisibility, t],
   );
 
   const handleTabChange = async (key) => {
@@ -497,6 +501,7 @@ export const usePoolsData = () => {
       token_id: '',
       pool_id: '',
       period_end_date: toPeriodEndDateEndOfDay(),
+      remark: '',
     });
   const openCreateTokenSub = () => {
     resetTokenSubForm();
@@ -510,6 +515,7 @@ export const usePoolsData = () => {
       period_end_date: record.period_end
         ? toPeriodEndDateEndOfDay(new Date(record.period_end * 1000))
         : toPeriodEndDateEndOfDay(),
+      remark: record.remark || '',
     });
     setShowTokenSubForm(true);
   };
@@ -540,6 +546,7 @@ export const usePoolsData = () => {
         token_id: tokenId,
         pool_id: poolId,
         period_end: periodEnd,
+        remark: String(tokenSubForm.remark || '').trim(),
       });
       if (!res?.data?.success) {
         showError(res?.data?.message || t('Failed to save token subscription'));
@@ -575,6 +582,66 @@ export const usePoolsData = () => {
     } catch (error) {
       showError(getErrorMessage(error, t('Failed to revoke token subscription')));
     }
+  };
+  const setTokenSubscriptionArchived = async (record, archived) => {
+    const tokenId = parseInt(String(record?.token_id).trim(), 10);
+    const poolId = parseInt(String(record?.pool_id).trim(), 10);
+    if (!tokenId || !poolId) {
+      return;
+    }
+    try {
+      const res = await API.put('/api/pool/token_subscription/archive', {
+        token_id: tokenId,
+        pool_id: poolId,
+        archived,
+      });
+      if (!res?.data?.success) {
+        showError(
+          res?.data?.message ||
+            (archived
+              ? t('Failed to archive token subscription')
+              : t('Failed to unarchive token subscription')),
+        );
+        return;
+      }
+      showSuccess(
+        archived
+          ? t('Token subscription archived')
+          : t('Token subscription unarchived'),
+      );
+      await loadTokenSubscriptions(tokenSubPage);
+    } catch (error) {
+      showError(
+        getErrorMessage(
+          error,
+          archived
+            ? t('Failed to archive token subscription')
+            : t('Failed to unarchive token subscription'),
+        ),
+      );
+    }
+  };
+  const archiveTokenSubscription = (record) => {
+    Modal.confirm({
+      title: t('Archive this subscription?'),
+      content: record?.active
+        ? t(
+            'Archiving hides it from the default list. The token stays entitled until period end.',
+          )
+        : t(
+            'Archiving hides it from the default list. This subscription is already expired or disabled.',
+          ),
+      onOk: () => setTokenSubscriptionArchived(record, true),
+    });
+  };
+  const unarchiveTokenSubscription = (record) => {
+    Modal.confirm({
+      title: t('Unarchive this subscription?'),
+      content: t(
+        'This row will appear in the default list again. Entitlement is still based on period end.',
+      ),
+      onOk: () => setTokenSubscriptionArchived(record, false),
+    });
   };
   const openCreatePool = () => {
     resetPoolForm();
@@ -1263,17 +1330,48 @@ export const usePoolsData = () => {
       {
         title: t('Active'),
         dataIndex: 'active',
-        width: 88,
-        render: (v) => boolTag(v),
+        width: 120,
+        render: (v, record) => (
+          <Space>
+            {boolTag(v)}
+            {record.archived ? <Tag color='grey'>{t('Archived')}</Tag> : null}
+          </Space>
+        ),
       },
       { title: t('Last order'), dataIndex: 'last_order_id', width: 96 },
+      {
+        title: t('Remark'),
+        dataIndex: 'remark',
+        width: 180,
+        ellipsis: { showTitle: true },
+        render: (v) => v || '—',
+      },
       {
         title: 'Actions',
         dataIndex: 'operate',
         render: (_, record) => (
-          <Button size='small' type='tertiary' onClick={() => openEditTokenSub(record)}>
-            {t('Edit')}
-          </Button>
+          <Space>
+            <Button size='small' type='tertiary' onClick={() => openEditTokenSub(record)}>
+              {t('Edit')}
+            </Button>
+            {record.archived ? (
+              <Button
+                size='small'
+                type='tertiary'
+                onClick={() => unarchiveTokenSubscription(record)}
+              >
+                {t('Unarchive')}
+              </Button>
+            ) : (
+              <Button
+                size='small'
+                type='tertiary'
+                onClick={() => archiveTokenSubscription(record)}
+              >
+                {t('Archive')}
+              </Button>
+            )}
+          </Space>
         ),
       },
     ],
@@ -1603,6 +1701,8 @@ export const usePoolsData = () => {
     setTokenSubFilterTokenName,
     tokenSubFilterPoolName,
     setTokenSubFilterPoolName,
+    tokenSubFilterVisibility,
+    setTokenSubFilterVisibility,
     loadTokenSubscriptions,
     tokenSubColumns,
     tokenSubForm,

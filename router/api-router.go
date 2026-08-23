@@ -331,6 +331,7 @@ func SetApiRouter(router *gin.Engine) {
 			poolRoute.POST("/subscription_orders/:trade_no/reconcile", controller.AdminReconcileWechatOrder)
 			poolRoute.GET("/token_subscriptions", controller.GetTokenPoolSubscriptions)
 			poolRoute.PUT("/token_subscription", controller.PutTokenPoolSubscription)
+			poolRoute.PUT("/token_subscription/archive", controller.PutTokenPoolSubscriptionArchive)
 
 			poolRoute.GET("/period_option", controller.GetPoolPeriodOptionsAdmin)
 			poolRoute.POST("/period_option", controller.CreatePoolPeriodOptionAdmin)

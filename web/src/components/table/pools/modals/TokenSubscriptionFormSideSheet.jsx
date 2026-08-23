@@ -6,6 +6,7 @@ import {
   SideSheet,
   Space,
   Tag,
+  TextArea,
   Typography,
 } from '@douyinfe/semi-ui';
 import { toPeriodEndDateEndOfDay } from '../../../../hooks/pools/usePoolsData';
@@ -88,6 +89,16 @@ const TokenSubscriptionFormSideSheet = ({
               ...prev,
               period_end_date: date ? toPeriodEndDateEndOfDay(date) : null,
             }))
+          }
+        />
+        <TextArea
+          placeholder={t('Ops memo')}
+          maxCount={255}
+          maxLength={255}
+          rows={3}
+          value={formData.remark ?? ''}
+          onChange={(value) =>
+            setFormData((prev) => ({ ...prev, remark: value }))
           }
         />
       </div>
