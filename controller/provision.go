@@ -8,15 +8,34 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
+const defaultProvisionTokenGroup = "default"
+
 type provisionCustomerTokenRequest struct {
 	CustomerUUID            string `json:"customer_uuid"`
 	Name                    string `json:"name"`
+	Group                   string `json:"group"`
 	PoolID                  int    `json:"pool_id"`
 	RequirePoolSubscription *bool  `json:"require_pool_subscription"`
+}
+
+func resolveProvisionTokenGroup(requested string) string {
+	group := strings.TrimSpace(requested)
+	if group == "" {
+		return defaultProvisionTokenGroup
+	}
+	return group
+}
+
+func provisionTokenGroupAllowed(userGroup, tokenGroup string) bool {
+	if tokenGroup == "auto" {
+		return true
+	}
+	return service.GroupInUserUsableGroups(userGroup, tokenGroup)
 }
 
 func ProvisionCustomerToken(c *gin.Context) {
@@ -48,10 +67,27 @@ func ProvisionCustomerToken(c *gin.Context) {
 	if req.RequirePoolSubscription != nil {
 		requireSub = *req.RequirePoolSubscription
 	}
+	group := resolveProvisionTokenGroup(req.Group)
+	userCache, err := model.GetUserCache(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !provisionTokenGroupAllowed(userCache.Group, group) {
+		common.ApiErrorMsg(c, fmt.Sprintf("无权访问 %s 分组", group))
+		return
+	}
 
 	var existing model.Token
-	err := model.DB.Where("user_id = ? AND name = ?", userId, name).First(&existing).Error
+	err = model.DB.Where("user_id = ? AND name = ?", userId, name).First(&existing).Error
 	if err == nil {
+		if existing.Group == "" {
+			existing.Group = group
+			if err := existing.Update(); err != nil {
+				common.ApiError(c, err)
+				return
+			}
+		}
 		if err := bindTokenPoolIfNeeded(&existing, req.PoolID); err != nil {
 			common.ApiError(c, err)
 			return
@@ -85,6 +121,7 @@ func ProvisionCustomerToken(c *gin.Context) {
 		Status:                  common.TokenStatusEnabled,
 		RequirePoolSubscription: requireSub,
 		TrialPeriodMonths:       1,
+		Group:                   group,
 	}
 	if err := token.Insert(); err != nil {
 		common.ApiError(c, err)
