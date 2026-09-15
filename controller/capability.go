@@ -38,6 +38,11 @@ func UpdateCapabilitySettings(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	// 持久化到 options 表，保证重启后配置保留
+	if err := model.UpdateOption("capability_setting.capabilities", capability_setting.MarshalCapabilitiesJSON()); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	common.ApiSuccess(c, nil)
 }
 

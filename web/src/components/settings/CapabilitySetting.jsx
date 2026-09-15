@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Button,
   Card,
@@ -49,7 +49,7 @@ const CapabilitySetting = () => {
   const [saving, setSaving] = useState(false);
   const [capabilities, setCapabilities] = useState({});
   const [consumedTotal, setConsumedTotal] = useState({});
-  const [formApi, setFormApi] = useState(null);
+  const formApiRef = useRef(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -57,7 +57,7 @@ const CapabilitySetting = () => {
       const res = await API.get('/api/capability/settings');
       setCapabilities(res.data?.data?.capabilities || {});
       setConsumedTotal(res.data?.data?.consumed_total || {});
-      formApi?.setValues(res.data?.data?.capabilities || {});
+      formApiRef.current?.setValues(res.data?.data?.capabilities || {}, { isOverride: true });
     } catch (err) {
       showError(err);
     } finally {
@@ -66,15 +66,14 @@ const CapabilitySetting = () => {
   };
 
   useEffect(() => {
-    if (formApi) {
-      loadData();
-    }
-  }, [formApi]);
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      const values = formApi.getValues();
+      const values = formApiRef.current.getValues();
       const payload = {};
       Object.entries(values).forEach(([name, cfg]) => {
         payload[name] = {
@@ -83,6 +82,10 @@ const CapabilitySetting = () => {
           enabled: Boolean(cfg?.enabled),
         };
       });
+      if (Object.keys(payload).length === 0) {
+        showError(t('没有可保存的能力配置'));
+        return;
+      }
       await API.put('/api/capability/settings', { capabilities: payload });
       showSuccess(t('保存成功'));
       await loadData();
@@ -112,7 +115,6 @@ const CapabilitySetting = () => {
       />
       <Card
         title={t('能力配置')}
-        loading={loading}
         footer={
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <Button type='primary' loading={saving} onClick={handleSave}>
@@ -122,7 +124,7 @@ const CapabilitySetting = () => {
         }
       >
         <Form
-          getFormApi={(api) => setFormApi(api)}
+          getFormApi={(api) => (formApiRef.current = api)}
           style={{ maxWidth: '100%' }}
         >
           <Table
@@ -193,6 +195,7 @@ const CapabilitySetting = () => {
               },
             ]}
             dataSource={dataSource}
+            loading={loading}
             pagination={false}
             rowKey='name'
           />

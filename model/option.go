@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/capability_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/performance_setting"
@@ -589,6 +590,10 @@ func handleConfigUpdate(key, value string) bool {
 	if configName == "performance_setting" {
 		// 同步磁盘缓存配置到 common 包
 		performance_setting.UpdateAndSync()
+	}
+	if configName == "capability_setting" {
+		// 数据库中的能力配置可能不完整（如旧版本清空过），确保所有注册能力存在
+		capability_setting.ReseedFromRegistry()
 	}
 
 	return true // 已处理

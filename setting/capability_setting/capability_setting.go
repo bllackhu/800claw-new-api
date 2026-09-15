@@ -21,15 +21,26 @@ type CapabilitySetting struct {
 var capabilitySetting CapabilitySetting
 
 func init() {
-	cm := types.NewRWMap[string, CapabilityConfig]()
-	for _, meta := range constant.CapabilityRegistry {
-		cm.Set(meta.Name, CapabilityConfig{
-			PricePerUnit: meta.DefaultPrice,
-			Enabled:      false,
-		})
-	}
-	capabilitySetting = CapabilitySetting{Capabilities: cm}
+	capabilitySetting = CapabilitySetting{Capabilities: types.NewRWMap[string, CapabilityConfig]()}
+	ensureRegisteredCapabilities()
 	config.GlobalConfig.Register("capability_setting", &capabilitySetting)
+}
+
+// ensureRegisteredCapabilities 确保所有已注册的能力都存在，缺失时用注册表默认值补上
+func ensureRegisteredCapabilities() {
+	for _, meta := range constant.CapabilityRegistry {
+		if _, ok := capabilitySetting.Capabilities.Get(meta.Name); !ok {
+			capabilitySetting.Capabilities.Set(meta.Name, CapabilityConfig{
+				PricePerUnit: meta.DefaultPrice,
+				Enabled:      false,
+			})
+		}
+	}
+}
+
+// ReseedFromRegistry 重新补齐所有已注册的能力（数据库加载后调用，防止缺失/空数据清空注册表）
+func ReseedFromRegistry() {
+	ensureRegisteredCapabilities()
 }
 
 // GetCapabilitySetting 返回能力设置（用于管理端编辑）
@@ -69,15 +80,20 @@ func GetCapabilitiesCopy() map[string]CapabilityConfig {
 	return capabilitySetting.Capabilities.ReadAll()
 }
 
-// UpdateCapabilities 批量更新能力配置，仅接受已注册的能力
+// UpdateCapabilities 批量更新能力配置，仅接受已注册的能力。
+// 采用合并语义：只更新提交中的能力，缺失的注册能力保留原值，避免误清空。
 func UpdateCapabilities(configs map[string]CapabilityConfig) error {
-	valid := make(map[string]CapabilityConfig)
 	for name, cfg := range configs {
-		if constant.IsValidCapability(name) {
-			valid[name] = cfg
+		if !constant.IsValidCapability(name) {
+			continue
 		}
+		capabilitySetting.Capabilities.Set(name, cfg)
 	}
-	capabilitySetting.Capabilities.Clear()
-	capabilitySetting.Capabilities.AddAll(valid)
+	ensureRegisteredCapabilities()
 	return nil
+}
+
+// MarshalCapabilitiesJSON 返回能力配置的 JSON 字符串（用于持久化到 options 表）
+func MarshalCapabilitiesJSON() string {
+	return capabilitySetting.Capabilities.MarshalJSONString()
 }
