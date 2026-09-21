@@ -93,10 +93,10 @@ func SyncChannelCache(frequency int) {
 	}
 }
 
-func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel, error) {
+func GetRandomSatisfiedChannel(group string, model string, retry int, used map[int]bool) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry)
+		return GetChannel(group, model, retry, used)
 	}
 
 	channelSyncLock.RLock()
@@ -115,16 +115,16 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 		return nil, nil
 	}
 
-	return getRandomChannelFromIDs(channels, retry)
+	return getRandomChannelFromIDs(channels, retry, used)
 }
 
-func GetRandomSatisfiedChannelByPool(group string, model string, retry int, poolId int) (*Channel, error) {
+func GetRandomSatisfiedChannelByPool(group string, model string, retry int, poolId int, used map[int]bool) (*Channel, error) {
 	if poolId <= 0 {
-		return GetRandomSatisfiedChannel(group, model, retry)
+		return GetRandomSatisfiedChannel(group, model, retry, used)
 	}
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannelByPool(group, model, retry, poolId)
+		return GetChannelByPool(group, model, retry, poolId, used)
 	}
 
 	channelSyncLock.RLock()
@@ -151,13 +151,24 @@ func GetRandomSatisfiedChannelByPool(group string, model string, retry int, pool
 		return nil, nil
 	}
 
-	return getRandomChannelFromIDs(filteredChannels, retry)
+	return getRandomChannelFromIDs(filteredChannels, retry, used)
 }
 
-func getRandomChannelFromIDs(channels []int, retry int) (*Channel, error) {
+// getRandomChannelFromIDs selects a channel from the given candidate IDs.
+// Retries first exhaust every channel of the current (highest) priority tier
+// that has not been tried yet, then drop to the next lower priority tier.
+// Channels present in `used` are never selected again.
+// It returns nil when every candidate channel has already been tried.
+// getRandomChannelFromIDs 从候选渠道 ID 中挑选一个渠道。
+// 重试会先尝试当前（最高）优先级下所有尚未尝试过的渠道，然后才降级到下一个优先级。
+// `used` 中的渠道不会再被选中；当所有候选渠道都被尝试过后返回 nil。
+func getRandomChannelFromIDs(channels []int, retry int, used map[int]bool) (*Channel, error) {
 
 	if len(channels) == 1 {
 		if channel, ok := channelsIDM[channels[0]]; ok {
+			if used[channel.Id] {
+				return nil, nil
+			}
 			return channel, nil
 		}
 		return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channels[0])
@@ -177,23 +188,40 @@ func getRandomChannelFromIDs(channels []int, retry int) (*Channel, error) {
 	}
 	sort.Sort(sort.Reverse(sort.IntSlice(sortedUniquePriorities)))
 
-	if retry >= len(uniquePriorities) {
-		retry = len(uniquePriorities) - 1
+	// Find the highest priority tier that still has an untried channel.
+	// 找到仍然有未尝试渠道的最高优先级。
+	var targetPriority int64
+	var targetChannels []*Channel
+	foundTier := false
+	for _, priority := range sortedUniquePriorities {
+		var candidates []*Channel
+		for _, channelId := range channels {
+			channel, ok := channelsIDM[channelId]
+			if !ok {
+				return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelId)
+			}
+			if channel.GetPriority() == int64(priority) && !used[channel.Id] {
+				candidates = append(candidates, channel)
+			}
+		}
+		if len(candidates) > 0 {
+			targetPriority = int64(priority)
+			targetChannels = candidates
+			foundTier = true
+			break
+		}
 	}
-	targetPriority := int64(sortedUniquePriorities[retry])
+
+	// Every candidate channel has already been tried.
+	// 所有候选渠道都已被尝试过。
+	if !foundTier {
+		return nil, nil
+	}
 
 	// get the priority for the given retry number
 	var sumWeight = 0
-	var targetChannels []*Channel
-	for _, channelId := range channels {
-		if channel, ok := channelsIDM[channelId]; ok {
-			if channel.GetPriority() == targetPriority {
-				sumWeight += channel.GetWeight()
-				targetChannels = append(targetChannels, channel)
-			}
-		} else {
-			return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelId)
-		}
+	for _, channel := range targetChannels {
+		sumWeight += channel.GetWeight()
 	}
 
 	if len(targetChannels) == 0 {
