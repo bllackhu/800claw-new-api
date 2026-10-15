@@ -283,6 +283,13 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.DELETE("/:id/capabilities/:capability", controller.DeleteTokenCapability)
 		}
 
+		chatFileRoute := apiRouter.Group("/chat/files")
+		chatFileRoute.Use(middleware.TokenAuthReadOnly())
+		{
+			chatFileRoute.POST("/upload-grant", controller.ChatFileUploadGrant)
+			chatFileRoute.POST("/sign", controller.ChatFileSign)
+		}
+
 		usageRoute := apiRouter.Group("/usage")
 		usageRoute.Use(middleware.CORS())
 		{
